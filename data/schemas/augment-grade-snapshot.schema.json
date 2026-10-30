@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aram-companion.local/schemas/augment-grade-snapshot.schema.json",
+  "title": "ARAM Champion Augment Grade Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "patch", "source", "updated_at", "records"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "patch": { "type": "string", "minLength": 1, "maxLength": 24 },
+    "source": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "updated_at": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 60000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["champion_id", "champion_name", "augment_id", "name", "grade", "reason"],
+        "properties": {
+          "champion_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,80}$" },
+          "champion_name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "augment_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,80}$" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "grade": { "enum": ["S", "A", "B"] },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 400 }
+        }
+      }
+    }
+  }
+}

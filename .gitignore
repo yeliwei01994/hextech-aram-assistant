@@ -1,0 +1,17 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+workers/ocr/.venv/
+workers/ocr/build/
+workers/ocr/dist/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+outputs/
+work/
+.env
+.env.*
+*.sqlite*
+*.db
+*.log

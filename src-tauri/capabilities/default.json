@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for the ARAM Companion desktop window.",
+  "windows": ["main", "ocr-overlay", "champion-rank-overlay"],
+  "permissions": ["core:default"]
+}

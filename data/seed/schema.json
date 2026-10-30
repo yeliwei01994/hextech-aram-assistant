@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "description": "本地数据快照格式。内置 OP.GG 派生海克斯分级；英雄排名快照暂缺，不填充演示榜单。",
+  "ranking_fields": ["champion_id", "name", "position", "total", "badge_tier", "patch", "source", "updated_at"],
+  "augment_grade_values": ["S", "A", "B"]
+}

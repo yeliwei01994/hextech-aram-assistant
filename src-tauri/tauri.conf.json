@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "海克斯大乱斗小助手",
+  "version": "0.1.0",
+  "identifier": "com.aramcompanion.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "海克斯大乱斗小助手",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 920,
+        "minHeight": 640,
+        "center": true,
+        "resizable": true,
+        "decorations": true
+      },
+      {
+        "label": "ocr-overlay",
+        "title": "海克斯大乱斗小助手 · 海克斯建议",
+        "url": "index.html?window=ocr-overlay",
+        "width": 980,
+        "height": 172,
+        "center": true,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "shadow": false
+      },
+      {
+        "label": "champion-rank-overlay",
+        "title": "海克斯大乱斗小助手 · 英雄排名",
+        "url": "index.html?window=champion-rank-overlay",
+        "width": 306,
+        "height": 92,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "category": "Game",
+    "shortDescription": "轻量、本地优先的极地大乱斗助手",
+    "longDescription": "提供英雄榜、海克斯分级与离线阵容出装建议。",
+    "resources": {
+      "../workers/ocr/card-layout.json": "workers/ocr/card-layout.json",
+      "../workers/ocr/dist/aram-ocr/": "workers/ocr/dist/aram-ocr/"
+    }
+  }
+}

@@ -10,7 +10,7 @@
 - **选人浮层**：开启自动识别后，在选人界面显示当前英雄和备选池英雄的排名与段位。
 - **海克斯推荐**：选择英雄后同步其 OP.GG 推荐等级，按 S / A / B 分类，不展示胜率。
 - **游戏内识别**：使用本地 OCR 识别三张海克斯卡片，并尝试在卡片上方显示等级；支持手动重识别。
-- **阵容出装**：根据手动输入的敌方威胁标签提供装备方向；可选接入兼容 OpenAI 的 API 辅助分析。
+
 
 ## 使用方法
 
@@ -51,6 +51,4 @@ ocr:build 会创建 OCR Python 虚拟环境、安装依赖并生成 OCR 运行�
     workers/ocr/         OCR 识别与打包脚本
     data/                内置数据和导入格式
 
-## 致谢
-
-感谢 [lol-aram-mayhem-hextech-helper](https://github.com/Nyx0ra/lol-aram-mayhem-hextech-helper) 提供的灵感。本项目与 Riot Games、OP.GG 无官方关联。
+目前是v0.1版本 还有很多需要优化的地方 后续考虑接入API进行阵容分析推荐出装。

@@ -6,7 +6,7 @@ use std::{
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 use tauri::{AppHandle, Emitter, Manager};
 
-const PROBE_INTERVAL: Duration = Duration::from_millis(850);
+const PROBE_INTERVAL: Duration = Duration::from_millis(300);
 const AUTO_REQUEST_INTERVAL: Duration = Duration::from_secs(3);
 const PROBE_ERROR_COOLDOWN: Duration = Duration::from_secs(5);
 

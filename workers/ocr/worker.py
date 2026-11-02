@@ -6,6 +6,7 @@ import ctypes
 import json
 import os
 import sys
+import time
 from ctypes import wintypes
 from pathlib import Path
 from typing import Any
@@ -192,31 +193,82 @@ def create_engine() -> Any:
     return RapidOCR()
 
 
-def recognize_card(engine: Any, image: Image.Image) -> tuple[str, float]:
+def recognize_cards(engine: Any, images: list[Image.Image]) -> list[tuple[str, float]]:
+    from rapidocr.main import RapidOCRError
+
+    card_regions: list[list[Any]] = []
+    regions = []
+    detect_started = time.perf_counter()
+    for image in images:
+        source = engine.load_img(image)
+        prepared, operation = engine.preprocess_img(source)
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                crops, _ = engine.detect_and_crop(prepared, operation)
+        except RapidOCRError:
+            crops = []
+        card_regions.append(crops)
+        regions.extend(crops)
+    detect_ms = (time.perf_counter() - detect_started) * 1000
+
+    if not regions:
+        return [("", 0.0) for _ in images]
+
     with contextlib.redirect_stdout(sys.stderr):
-        result = engine(image)
-    result_texts = result.txts if result.txts is not None else []
-    result_scores = result.scores if result.scores is not None else []
-    texts = [str(text).strip() for text in result_texts if str(text).strip()]
-    scores = [float(score) for score in result_scores]
-    confidence = sum(scores) / len(scores) if scores else 0.0
-    return "".join(texts), max(0.0, min(confidence, 1.0))
+        classify_started = time.perf_counter()
+        oriented, _ = engine.cls_and_rotate(regions)
+        classify_ms = (time.perf_counter() - classify_started) * 1000
+        recognize_started = time.perf_counter()
+        result = engine.recognize_txt(oriented)
+        recognize_ms = (time.perf_counter() - recognize_started) * 1000
+
+    output = []
+    offset = 0
+    for crops in card_regions:
+        count = len(crops)
+        texts = [str(text).strip() for text in (result.txts or ())[offset : offset + count]]
+        scores = [float(score) for score in result.scores[offset : offset + count]]
+        offset += count
+        texts = [text for text in texts if text]
+        confidence = sum(scores) / len(scores) if scores else 0.0
+        output.append(("".join(texts), max(0.0, min(confidence, 1.0))))
+
+    print(
+        f"海克斯 OCR 批处理：检测 {detect_ms:.0f} ms，方向校正 {classify_ms:.0f} ms，文字识别 {recognize_ms:.0f} ms",
+        file=sys.stderr,
+        flush=True,
+    )
+    return output
 
 
 def process_request(request: dict[str, Any], layout: dict[str, Any], engine_holder: list[Any]) -> dict[str, Any]:
     action = request.get("action")
     if action == "warmup":
         if engine_holder[0] is None:
+            started = time.perf_counter()
             with contextlib.redirect_stdout(sys.stderr):
-                engine_holder[0] = create_engine()
+                engine = create_engine()
+                # RapidOCR loads each ONNX model on first use. Load them while the
+                # game is starting so the first augment choice does not pay this cost.
+                engine._load_det_model()
+                engine._load_cls_model()
+                engine._load_rec_model()
+                engine_holder[0] = engine
+            elapsed = (time.perf_counter() - started) * 1000
+            print(f"OCR 模型预热完成：{elapsed:.0f} ms", file=sys.stderr, flush=True)
         return {"ready": True}
     if action == "probe_augment_screen":
         try:
+            started = time.perf_counter()
             rect = active_game_client_rect()
-            return {
+            response = {
                 "game_foreground": True,
                 "augment_choice": looks_like_augment_cards(reference_rect(rect), layout),
             }
+            elapsed = (time.perf_counter() - started) * 1000
+            if elapsed >= 100:
+                print(f"海克斯画面探测：{elapsed:.0f} ms", file=sys.stderr, flush=True)
+            return response
         except RuntimeError:
             return {"game_foreground": False, "augment_choice": False}
 
@@ -231,13 +283,19 @@ def process_request(request: dict[str, Any], layout: dict[str, Any], engine_hold
         with contextlib.redirect_stdout(sys.stderr):
             engine_holder[0] = create_engine()
 
-    cards = []
+    started = time.perf_counter()
+    crops = []
     for card in layout["cards"]:
         image = crop_title(reference_rect(rect), card, layout["title_crop"], int(layout.get("upscale", 3)))
-        raw_text, confidence = recognize_card(engine_holder[0], image)
+        crops.append(image)
+    predictions = recognize_cards(engine_holder[0], crops)
+    cards = []
+    for card, (raw_text, confidence) in zip(layout["cards"], predictions):
         cards.append(
             {"slot": int(card["slot"]), "raw_text": raw_text, "confidence": confidence}
         )
+    elapsed = (time.perf_counter() - started) * 1000
+    print(f"海克斯 OCR 三卡总耗时：{elapsed:.0f} ms", file=sys.stderr, flush=True)
     return {
         "screen_width": rect["width"],
         "screen_height": rect["height"],

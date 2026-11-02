@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{ChampionRankRow, GamePhase};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GameState {
     pub enabled: bool,
     pub connected: bool,

@@ -15,15 +15,18 @@ pub fn get_game_detection_settings(
         .db
         .lock()
         .map_err(|_| "本地数据库锁定失败".to_string())?;
-    let enabled = db
+    let enabled = match db
         .query_row(
             "SELECT value FROM app_settings WHERE key = ?1",
             [DETECTION_SETTING],
             |row| row.get::<_, String>(0),
         )
         .optional()
-        .map(|value| value.as_deref() == Some("true"))
-        .unwrap_or(false);
+    {
+        Ok(Some(value)) => value == "true",
+        Ok(None) => true,
+        Err(error) => return Err(format!("读取客户端检测设置失败：{error}")),
+    };
     Ok(GameDetectionSettings { enabled })
 }
 

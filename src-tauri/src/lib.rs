@@ -8,7 +8,12 @@ mod recommendation;
 
 use rusqlite::Connection;
 use std::{fs, path::PathBuf, sync::Mutex};
-use tauri::{path::BaseDirectory, Emitter, Manager};
+use tauri::{
+    menu::{Menu, MenuItem},
+    path::BaseDirectory,
+    tray::TrayIconBuilder,
+    Emitter, Manager,
+};
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -17,10 +22,9 @@ pub struct AppState {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts(["ctrl+shift+f6", "ctrl+shift+f7", "ctrl+shift+f8"])
-                .expect("valid global shortcuts")
                 .with_handler(|app, shortcut, event| {
                     use tauri_plugin_global_shortcut::ShortcutState;
                     if event.state != ShortcutState::Pressed {
@@ -41,12 +45,24 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+            for shortcut in ["ctrl+shift+f6", "ctrl+shift+f7", "ctrl+shift+f8"] {
+                if let Err(error) = app.global_shortcut().register(shortcut) {
+                    eprintln!("注册全局快捷键 {shortcut} 失败，应用继续运行：{error}");
+                }
+            }
+
             let app_data_dir = app.path().app_local_data_dir()?;
             fs::create_dir_all(&app_data_dir)?;
             let db_path: PathBuf = app_data_dir.join("aram-companion.sqlite3");
             let mut connection = Connection::open(db_path)?;
             connection.execute_batch(include_str!("../data/migrations/0001_initial.sql"))?;
             connection.pragma_update(None, "foreign_keys", "ON")?;
+            connection.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?1, 'true')",
+                ["game_detection_enabled"],
+            )?;
             let augment_count: i64 = connection.query_row(
                 "SELECT COUNT(*) FROM champion_augment_grades",
                 [],
@@ -84,6 +100,39 @@ pub fn run() {
             });
             providers::opgg::start_rank_sync(app.handle().clone());
             ocr::start_automatic_detection(app.handle().clone());
+            game::watcher::start_game_state_monitor(app.handle().clone());
+
+            let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&settings_item, &quit_item])?;
+            if let Some(icon) = app.default_window_icon() {
+                TrayIconBuilder::new()
+                    .icon(icon.clone())
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "settings" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .build(app)?;
+            } else {
+                eprintln!("无法创建系统托盘：默认应用图标不存在");
+            }
+
+            let main = app.get_webview_window("main").expect("main window exists");
+            let close_window = main.clone();
+            main.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = close_window.hide();
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -102,10 +151,13 @@ pub fn run() {
             commands::game::show_champion_rank_overlay,
             commands::game::hide_champion_rank_overlay,
             game::watcher::get_game_state,
+            commands::notifications::get_notification_permission,
+            commands::notifications::request_notification_permission,
+            commands::notifications::send_app_notification,
             commands::ocr::recognize_current_screen,
             commands::ocr::show_ocr_overlay,
             commands::ocr::hide_ocr_overlay
         ])
         .run(tauri::generate_context!())
-        .expect("failed to run ARAM Companion");
+        .expect("failed to run 海克斯大乱斗小助手");
 }

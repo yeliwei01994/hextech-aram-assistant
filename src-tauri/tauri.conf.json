@@ -13,11 +13,12 @@
     "windows": [
       {
         "title": "海克斯大乱斗小助手",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 920,
-        "minHeight": 640,
+        "width": 800,
+        "height": 580,
+        "minWidth": 720,
+        "minHeight": 500,
         "center": true,
+        "visible": false,
         "resizable": true,
         "decorations": true
       },
@@ -62,9 +63,10 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "category": "Game",
-    "shortDescription": "轻量、本地优先的极地大乱斗助手",
-    "longDescription": "提供英雄榜、海克斯分级与离线阵容出装建议。",
+    "shortDescription": "轻量、本地优先的海克斯大乱斗助手",
+    "longDescription": "常驻系统托盘，提供英雄排名与海克斯推荐浮层。",
     "resources": {
       "../workers/ocr/card-layout.json": "workers/ocr/card-layout.json",
       "../workers/ocr/dist/aram-ocr/": "workers/ocr/dist/aram-ocr/"

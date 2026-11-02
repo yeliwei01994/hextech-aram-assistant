@@ -8,7 +8,7 @@ use rusqlite::OptionalExtension;
 use serde_json::Value;
 use std::{path::Path, time::Duration};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, UpdateKind};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const DETECTION_SETTING: &str = "game_detection_enabled";
 
@@ -33,19 +33,26 @@ struct ObservedChampion {
 
 #[tauri::command]
 pub async fn get_game_state(state: State<'_, AppState>) -> Result<GameState, String> {
+    read_game_state(&state).await
+}
+
+async fn read_game_state(state: &AppState) -> Result<GameState, String> {
     let enabled = {
         let db = state
             .db
             .lock()
             .map_err(|_| "本地数据库锁定失败".to_string())?;
-        db.query_row(
+        match db.query_row(
             "SELECT value FROM app_settings WHERE key = ?1",
             [DETECTION_SETTING],
             |row| row.get::<_, String>(0),
         )
         .optional()
-        .map(|value| value.as_deref() == Some("true"))
-        .unwrap_or(false)
+        {
+            Ok(Some(value)) => value == "true",
+            Ok(None) => true,
+            Err(error) => return Err(format!("读取客户端检测设置失败：{error}")),
+        }
     };
 
     if !enabled {
@@ -88,6 +95,26 @@ pub async fn get_game_state(state: State<'_, AppState>) -> Result<GameState, Str
         ranking: champion.and_then(|(_, _, ranking)| ranking),
         bench,
     })
+}
+
+pub fn start_game_state_monitor(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut previous: Option<GameState> = None;
+        loop {
+            let state = app.state::<AppState>();
+            match read_game_state(&state).await {
+                Ok(current) => {
+                    if previous.as_ref() != Some(&current) {
+                        previous = Some(current.clone());
+                        let _ = app.emit_to("main", "game:state", current.clone());
+                    }
+                    let _ = crate::commands::game::show_champion_rank_overlay(current, app.clone());
+                }
+                Err(error) => eprintln!("读取游戏客户端状态失败：{error}"),
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
 }
 
 async fn observe_game() -> Observation {

@@ -94,6 +94,26 @@ export async function saveGameDetectionSettings(enabled: boolean): Promise<GameD
   return invoke<GameDetectionSettings>("save_game_detection_settings", { input: { enabled } });
 }
 
+export async function getNotificationPermission(): Promise<"granted" | "denied" | "prompt"> {
+  if (isTauri()) return invoke("get_notification_permission");
+  return "prompt";
+}
+
+export async function requestNotificationPermission(): Promise<"granted" | "denied" | "prompt"> {
+  if (isTauri()) return invoke("request_notification_permission");
+  return "prompt";
+}
+
+export async function sendAppNotification(title: string, body: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  try {
+    return await invoke<boolean>("send_app_notification", { title, body });
+  } catch (error) {
+    console.warn("发送 Windows 通知失败", error);
+    return false;
+  }
+}
+
 export async function showChampionRankOverlay(state: GameState): Promise<void> {
   if (!isTauri()) return;
   return invoke<void>("show_champion_rank_overlay", { payload: state });

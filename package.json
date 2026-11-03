@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "ocr:build": "powershell -ExecutionPolicy Bypass -File workers/ocr/build.ps1",
-    "tauri:build:with-ocr": "pnpm ocr:build && tauri build"
+    "tauri:build:with-ocr": "powershell -ExecutionPolicy Bypass -File workers/ocr/build.ps1 && tauri build --bundles nsis",
+    "package:windows:nsis": "powershell -ExecutionPolicy Bypass -File workers/ocr/build.ps1 && tauri build --bundles nsis",
+    "package:windows:portable": "powershell -ExecutionPolicy Bypass -File workers/ocr/build.ps1 && powershell -ExecutionPolicy Bypass -File packaging/windows/package-portable.ps1",
+    "package:windows": "powershell -ExecutionPolicy Bypass -File workers/ocr/build.ps1 && powershell -ExecutionPolicy Bypass -File packaging/windows/package.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

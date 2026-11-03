@@ -1,50 +1,64 @@
 # 海克斯大乱斗小助手
 
-面向简体中文《英雄联盟》的轻量 Windows 后台助手。启动后常驻系统托盘，自动监测本机游戏客户端，并在选人和海克斯选择时显示轻量游戏内提示。
+简体中文 Windows 桌面助手，在《英雄联盟》极地大乱斗中显示英雄排名和海克斯推荐。应用启动后常驻系统托盘，识别和 OCR 都在本机进行。
 
-> 项目仍在开发中。游戏内浮层和 OCR 需要按实际对局、分辨率与显示缩放进一步验证。
+> 当前发布：v0.1.0 免安装版。安装器暂不发布。
 
-## 功能
+## 下载与启动
 
-- 启动后隐藏主窗口，在系统托盘显示图标，并发送 Windows 原生通知。
-- 发现英雄联盟客户端连接时发送一次通知；关闭自动识别后停止客户端监测和连接通知。
-- 新安装默认开启本地客户端识别；已有设置会保留。海克斯 OCR 屏幕监测独立运行。
-- 选人阶段显示 OP.GG 英雄排名和段位；对局中本地 OCR 为海克斯卡片显示 S / A / B 推荐。
-- 英雄排名和海克斯分级保存于本地 SQLite；AI 阵容分析为可选功能。
+**[下载 v0.1.0 免安装压缩包](https://github.com/yeliwei01994/hextech-aram-assistant/releases/download/v0.1.0/HextechAramAssistant-0.1.0-portable.zip)**
 
-## 日常使用
+1. 下载 ZIP 并完整解压到一个固定文件夹，不要直接在压缩包里运行。
+2. 双击 `aram-companion.exe`。
+3. 应用会在后台托盘运行；右键托盘图标打开设置或退出。
 
-1. 从开始菜单或桌面快捷方式启动应用。首次启动会请求 Windows 通知权限。
-2. 助手会在后台运行；连接英雄联盟时会再提示一次。
-3. 需要调整设置或关闭应用时，右键系统托盘里的“海克斯大乱斗小助手”图标，选择“设置”或“退出”。关闭设置窗口只会将其隐藏回托盘。
-4. 游戏视频设置建议使用 **无边框**。独占全屏可能遮住 Windows 浮层。
+不需要安装 Node.js、pnpm、Rust 或 Python。OCR 运行组件已包含在压缩包内。Windows 11 和大多数 Windows 10 电脑已带有 WebView2；若程序提示缺少，可[从微软安装 WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703)。
 
-快捷键：`Ctrl + Shift + F6` 手动识别海克斯，`Ctrl + Shift + F7` 刷新英雄状态，`Ctrl + Shift + F8` 隐藏海克斯提示。Windows 拒绝注册全局快捷键时，应用会继续运行，自动识别仍可使用。
+## 功能预览
+
+### 选人阶段：英雄排名与段位标签
+
+自动识别当前英雄，在游戏界面显示 OP.GG 极地大乱斗排名和段位。
+
+<p align="center">
+  <img src="docs/screenshots/champion-ranking-overlay.png" alt="选人阶段显示英雄排名与段位标签" width="900">
+</p>
+
+### 对局阶段：海克斯 S / A / B 推荐
+
+本地识别海克斯卡片，并在卡片上方叠加推荐等级。刷新卡片后会根据画面变化重新识别。
+
+<p align="center">
+  <img src="docs/screenshots/hextech-grade-overlay.png" alt="海克斯卡片上方显示 S、A、B 推荐等级" width="900">
+</p>
+
+## 使用说明
+
+- 推荐将游戏显示模式设为**无边框**，独占全屏可能遮挡游戏内浮层。
+- 快捷键：`Ctrl + Shift + F6` 手动识别海克斯，`Ctrl + Shift + F7` 刷新英雄状态，`Ctrl + Shift + F8` 隐藏海克斯提示。
+- 关闭设置窗口会将应用隐藏回托盘；要完全退出，请右键托盘图标并选择“退出”。
+- 解压后的程序文件夹可放在任意固定位置。卸载时退出应用并删除该文件夹；本地设置和数据保存在 Windows 用户目录中。
 
 ## 从源码运行
 
-需要 Windows 10/11 x64、Node.js、pnpm、Rust stable、Visual Studio C++ Build Tools、WebView2 Runtime 和 Python。安装依赖后，在 PowerShell 中运行：
+开发环境需要 Windows 10/11 x64、Node.js、pnpm、Rust stable、Visual Studio C++ Build Tools、WebView2 Runtime 和 Python 3.12。
 
-    pnpm.cmd install
-    pnpm.cmd ocr:build
-    pnpm.cmd tauri dev
+```powershell
+pnpm.cmd install
+pnpm.cmd tauri dev
+```
 
-应用会启动到系统托盘，右键托盘图标打开设置。开发模式下 Windows 通知的名称和图标可能显示为 PowerShell，这是 Tauri 开发运行方式的限制。结束开发服务时，在启动它的终端按 `Ctrl + C`；如果端口 1420 已占用，请先结束旧的开发服务。
+构建免安装压缩包：
 
-构建 Windows 安装包：
+```powershell
+pnpm.cmd package:windows:portable
+```
 
-    pnpm.cmd tauri:build:with-ocr
+压缩包输出到 `outputs/HextechAramAssistant-版本号-portable.zip`。
 
 ## 数据与隐私
 
-英雄排名和海克斯分级来源为 [OP.GG](https://op.gg/)，同步结果缓存于本地 SQLite。也可在设置中导入 JSON 快照，格式见[数据来源说明](docs/data-sources.md)。数据来源及游戏内容的权利归各自所有者；使用时请遵守相关服务条款。
-
-开启客户端识别后，应用从本机英雄联盟客户端读取连接与英雄状态；海克斯截图在本机处理。AI 默认关闭，启用并手动触发分析时，才会向所配置的 API 服务发送敌方英雄名称和手动威胁标签。API 密钥保存在 Windows 凭据管理器。
-
-## 项目结构
-
-    src/                 设置界面与游戏内浮层
-    src-tauri/src/       Rust 桌面核心、托盘、通知与游戏状态
-    src-tauri/data/      数据库迁移
-    workers/ocr/         OCR 识别与打包脚本
-    data/                内置数据和导入格式
+- 英雄排名来源于 [OP.GG](https://op.gg/)，在应用本地缓存；海克斯等级和推荐内容保存在本地。
+- 英雄联盟客户端状态读取和海克斯截图 OCR 均在本机处理，不会上传游戏截图。
+- AI 阵容分析默认关闭；启用并手动触发后，才会将敌方英雄名称和手动威胁标签发送到用户配置的 API 服务。
+- 本项目为社区工具，与 Riot Games 或 OP.GG 无隶属关系。游戏及数据相关权利归其各自所有者。

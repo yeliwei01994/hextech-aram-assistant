@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ctypes
+import hashlib
 import json
 import os
 import sys
@@ -13,6 +14,9 @@ from typing import Any
 
 from mss import mss
 from PIL import Image
+
+MIN_BRIGHT_BORDER_RATIO = 0.22
+MIN_DARK_CENTER_RATIO = 0.45
 
 
 def set_per_monitor_dpi_awareness() -> None:
@@ -125,7 +129,12 @@ def reference_rect(rect: dict[str, int]) -> dict[str, int]:
             "width": width, "height": height}
 
 
-def crop_title(rect: dict[str, int], card: dict[str, Any], title: dict[str, float], upscale: int) -> Image.Image:
+def crop_title(
+    rect: dict[str, int],
+    card: dict[str, Any],
+    title: dict[str, float],
+    upscale: int,
+) -> tuple[Image.Image, str]:
     card_x = rect["left"] + round(rect["width"] * float(card["x"]))
     card_y = rect["top"] + round(rect["height"] * float(card["y"]))
     card_width = round(rect["width"] * float(card["width"]))
@@ -141,15 +150,24 @@ def crop_title(rect: dict[str, int], card: dict[str, Any], title: dict[str, floa
     with mss() as capture:
         screenshot = capture.grab(crop)
     image = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+    signature = title_signature(image)
     if upscale > 1:
         image = image.resize(
             (image.width * upscale, image.height * upscale), Image.Resampling.LANCZOS
         )
-    return image
+    return image, signature
 
 
-def looks_like_augment_cards(rect: dict[str, int], layout: dict[str, Any]) -> bool:
-    detected = 0
+def title_signature(image: Image.Image) -> str:
+    # Titles are static while the card art and border animate. A small binary
+    # mask keeps the signature focused on the text and cheap to compare.
+    sample = image.convert("L").resize((32, 8), Image.Resampling.BILINEAR)
+    mask = bytes(1 if pixel >= 145 else 0 for pixel in sample.getdata())
+    return hashlib.blake2s(mask, digest_size=8).hexdigest()
+
+
+def probe_augment_cards(rect: dict[str, int], layout: dict[str, Any]) -> list[dict[str, Any]]:
+    results = []
     with mss() as capture:
         for card in layout["cards"]:
             region = {
@@ -160,6 +178,13 @@ def looks_like_augment_cards(rect: dict[str, int], layout: dict[str, Any]) -> bo
             }
             frame = capture.grab(region)
             image = Image.frombytes("RGB", frame.size, frame.bgra, "raw", "BGRX")
+            title_left = round(image.width * float(layout["title_crop"]["x"]))
+            title_top = round(image.height * float(layout["title_crop"]["y"]))
+            title_right = title_left + round(image.width * float(layout["title_crop"]["width"]))
+            title_bottom = title_top + round(image.height * float(layout["title_crop"]["height"]))
+            signature = title_signature(image.crop((
+                title_left, title_top, title_right, title_bottom,
+            )))
             image = image.resize((32, 48), Image.Resampling.BILINEAR)
             pixels = image.load()
 
@@ -169,8 +194,8 @@ def looks_like_augment_cards(rect: dict[str, int], layout: dict[str, Any]) -> bo
             border_pixels.extend(pixels[x, y] for y in range(46, 48) for x in range(7, 25))
             border_pixels.extend(pixels[x, y] for x in range(0, 2) for y in range(8, 40))
             border_pixels.extend(pixels[x, y] for x in range(30, 32) for y in range(8, 40))
-            warm_border_ratio = sum(
-                red > 130 and green > 105 and blue > 65 and red >= green >= blue
+            bright_border_ratio = sum(
+                min(red, green, blue) > 130 and (red + green + blue) / 3 > 165
                 for red, green, blue in border_pixels
             ) / len(border_pixels)
 
@@ -182,12 +207,30 @@ def looks_like_augment_cards(rect: dict[str, int], layout: dict[str, Any]) -> bo
             dark_center_ratio = sum(
                 max(red, green, blue) < 105 for red, green, blue in center_pixels
             ) / len(center_pixels)
-            if warm_border_ratio >= 0.35 and dark_center_ratio >= 0.62:
-                detected += 1
-    return detected == len(layout["cards"])
+            results.append({
+                "slot": int(card["slot"]),
+                "signature": signature,
+                "bright_border_ratio": round(bright_border_ratio, 3),
+                "dark_center_ratio": round(dark_center_ratio, 3),
+                "matched": (
+                    bright_border_ratio >= MIN_BRIGHT_BORDER_RATIO
+                    and dark_center_ratio >= MIN_DARK_CENTER_RATIO
+                ),
+            })
+    return results
 
 
 def create_engine() -> Any:
+    if os.name == "nt":
+        # A Conda-based Python can preload its older MSVC runtime from the
+        # Python installation directory. ONNX Runtime may then fail during
+        # DLL initialization, so load the Windows C++ runtime before ORT.
+        system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        for runtime_name in ("msvcp140.dll", "msvcp140_1.dll"):
+            runtime_path = system32 / runtime_name
+            if runtime_path.is_file():
+                ctypes.WinDLL(str(runtime_path))
+
     from rapidocr import RapidOCR
 
     return RapidOCR()
@@ -241,7 +284,12 @@ def recognize_cards(engine: Any, images: list[Image.Image]) -> list[tuple[str, f
     return output
 
 
-def process_request(request: dict[str, Any], layout: dict[str, Any], engine_holder: list[Any]) -> dict[str, Any]:
+def process_request(
+    request: dict[str, Any],
+    layout: dict[str, Any],
+    engine_holder: list[Any],
+    card_cache: dict[int, tuple[str, str, float]],
+) -> dict[str, Any]:
     action = request.get("action")
     if action == "warmup":
         if engine_holder[0] is None:
@@ -261,9 +309,13 @@ def process_request(request: dict[str, Any], layout: dict[str, Any], engine_hold
         try:
             started = time.perf_counter()
             rect = active_game_client_rect()
+            cards = probe_augment_cards(reference_rect(rect), layout)
+            required_cards = max(2, len(layout["cards"]) - 1)
             response = {
                 "game_foreground": True,
-                "augment_choice": looks_like_augment_cards(reference_rect(rect), layout),
+                "augment_choice": sum(card["matched"] for card in cards) >= required_cards,
+                "card_metrics": cards,
+                "game_window": rect,
             }
             elapsed = (time.perf_counter() - started) * 1000
             if elapsed >= 100:
@@ -284,18 +336,42 @@ def process_request(request: dict[str, Any], layout: dict[str, Any], engine_hold
             engine_holder[0] = create_engine()
 
     started = time.perf_counter()
-    crops = []
+    predictions_by_slot: dict[int, tuple[str, float]] = {}
+    changed_slots = []
+    changed_signatures = []
+    changed_crops = []
+    upscale = int(layout.get("upscale", 3))
     for card in layout["cards"]:
-        image = crop_title(reference_rect(rect), card, layout["title_crop"], int(layout.get("upscale", 3)))
-        crops.append(image)
-    predictions = recognize_cards(engine_holder[0], crops)
+        slot = int(card["slot"])
+        image, signature = crop_title(reference_rect(rect), card, layout["title_crop"], 1)
+        cached = card_cache.get(slot)
+        if cached is not None and cached[0] == signature:
+            predictions_by_slot[slot] = (cached[1], cached[2])
+            continue
+        if upscale > 1:
+            image = image.resize(
+                (image.width * upscale, image.height * upscale), Image.Resampling.LANCZOS
+            )
+        changed_slots.append(slot)
+        changed_signatures.append(signature)
+        changed_crops.append(image)
+
+    changed_predictions = recognize_cards(engine_holder[0], changed_crops) if changed_crops else []
+    for slot, signature, (raw_text, confidence) in zip(
+        changed_slots, changed_signatures, changed_predictions
+    ):
+        predictions_by_slot[slot] = (raw_text, confidence)
+        if raw_text:
+            card_cache[slot] = (signature, raw_text, confidence)
+
     cards = []
-    for card, (raw_text, confidence) in zip(layout["cards"], predictions):
+    for card in layout["cards"]:
+        raw_text, confidence = predictions_by_slot.get(int(card["slot"]), ("", 0.0))
         cards.append(
             {"slot": int(card["slot"]), "raw_text": raw_text, "confidence": confidence}
         )
     elapsed = (time.perf_counter() - started) * 1000
-    print(f"海克斯 OCR 三卡总耗时：{elapsed:.0f} ms", file=sys.stderr, flush=True)
+    print(f"海克斯 OCR 更新 {len(changed_crops)}/3 张卡片：{elapsed:.0f} ms", file=sys.stderr, flush=True)
     return {
         "screen_width": rect["width"],
         "screen_height": rect["height"],
@@ -312,10 +388,11 @@ def main() -> None:
     set_per_monitor_dpi_awareness()
     layout = json.loads(Path(args.layout).read_text(encoding="utf-8"))
     engine_holder: list[Any] = [None]
+    card_cache: dict[int, tuple[str, str, float]] = {}
     for line in sys.stdin:
         try:
             request = json.loads(line)
-            response = process_request(request, layout, engine_holder)
+            response = process_request(request, layout, engine_holder, card_cache)
         except Exception as error:  # The JSON-lines process must survive one bad capture.
             response = {"error": str(error)}
         print(json.dumps(response, ensure_ascii=True), flush=True)

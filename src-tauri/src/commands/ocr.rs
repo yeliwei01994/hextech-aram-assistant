@@ -4,6 +4,7 @@ use crate::{
     AppState,
 };
 use rusqlite::OptionalExtension;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewWindow};
 
 #[tauri::command]
@@ -32,6 +33,7 @@ fn recognize_impl(
             .ocr
             .lock()
             .map_err(|_| "OCR 识别器暂不可用，请重启应用。".to_string())?;
+        let started = Instant::now();
         let screen = ocr.recognize_current_screen()?;
         if only_if_augment_choice {
             let probe = ocr.probe_current_screen()?;
@@ -40,6 +42,7 @@ fn recognize_impl(
                 return Ok(None);
             }
         }
+        eprintln!("海克斯识别：截图、OCR 与界面校验耗时 {} ms", started.elapsed().as_millis());
         screen
     };
 

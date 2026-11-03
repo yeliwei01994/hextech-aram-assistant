@@ -26,7 +26,24 @@ pub struct OcrProbeResponse {
     pub game_foreground: bool,
     #[serde(default)]
     pub augment_choice: bool,
+    #[serde(default)]
+    pub card_metrics: Vec<OcrCardProbeMetric>,
+    pub game_window: Option<OcrScreenBounds>,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct OcrCardProbeMetric {
+    #[serde(default)]
+    pub slot: u8,
+    #[serde(default)]
+    pub signature: String,
+    #[serde(default)]
+    pub bright_border_ratio: f32,
+    #[serde(default)]
+    pub dark_center_ratio: f32,
+    #[serde(default)]
+    pub matched: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -49,4 +66,6 @@ pub struct OcrScreenResult {
 pub struct OcrProbeResult {
     pub game_foreground: bool,
     pub augment_choice: bool,
+    pub card_metrics: Vec<OcrCardProbeMetric>,
+    pub game_window: Option<OcrScreenBounds>,
 }

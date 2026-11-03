@@ -123,6 +123,8 @@ impl OcrClient {
         Ok(OcrProbeResult {
             game_foreground: response.game_foreground,
             augment_choice: response.augment_choice,
+            card_metrics: response.card_metrics,
+            game_window: response.game_window,
         })
     }
 

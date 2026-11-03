@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "海克斯大乱斗小助手",
+        "create": false,
         "width": 800,
         "height": 580,
         "minWidth": 720,
@@ -25,6 +26,7 @@
       {
         "label": "ocr-overlay",
         "title": "海克斯大乱斗小助手 · 海克斯建议",
+        "create": false,
         "url": "index.html?window=ocr-overlay",
         "width": 980,
         "height": 172,
@@ -42,6 +44,7 @@
       {
         "label": "champion-rank-overlay",
         "title": "海克斯大乱斗小助手 · 英雄排名",
+        "create": false,
         "url": "index.html?window=champion-rank-overlay",
         "width": 306,
         "height": 92,
@@ -63,10 +66,24 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "useLocalToolsDir": true,
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "category": "Game",
     "shortDescription": "轻量、本地优先的海克斯大乱斗助手",
     "longDescription": "常驻系统托盘，提供英雄排名与海克斯推荐浮层。",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "wix": {
+        "language": "zh-CN"
+      }
+    },
     "resources": {
       "../workers/ocr/card-layout.json": "workers/ocr/card-layout.json",
       "../workers/ocr/dist/aram-ocr/": "workers/ocr/dist/aram-ocr/"

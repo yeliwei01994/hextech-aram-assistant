@@ -17,6 +17,12 @@ pub struct OcrCardAdvice {
     pub candidate_name: Option<String>,
     pub grade: Option<String>,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub win_rate: Option<f64>,
+    #[serde(default)]
+    pub games: Option<u64>,
+    #[serde(default)]
+    pub low_sample: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

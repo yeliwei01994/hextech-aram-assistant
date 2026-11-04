@@ -57,28 +57,5 @@ pub fn get_augment_grades(
         .db
         .lock()
         .map_err(|_| "本地数据库锁定失败".to_string())?;
-    let mut statement = db.prepare(
-        "SELECT champion_id, augment_id, name, grade, reason, patch FROM champion_augment_grades WHERE champion_id = ?1 ORDER BY CASE grade WHEN 'S' THEN 0 WHEN 'A' THEN 1 ELSE 2 END, name COLLATE NOCASE"
-    ).map_err(|error| format!("准备海克斯查询失败：{error}"))?;
-    let rows = statement
-        .query_map([champion_id], |row| {
-            let grade_text: String = row.get(3)?;
-            let grade = match grade_text.as_str() {
-                "S" => "S",
-                "A" => "A",
-                "B" => "B",
-                _ => return Err(rusqlite::Error::InvalidQuery),
-            };
-            Ok(AugmentGradeRow {
-                champion_id: row.get(0)?,
-                augment_id: row.get(1)?,
-                name: row.get(2)?,
-                grade: grade.to_string(),
-                reason: row.get(4)?,
-                patch: row.get(5)?,
-            })
-        })
-        .map_err(|error| format!("查询海克斯等级失败：{error}"))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("读取海克斯记录失败：{error}"))
+    crate::db::load_augment_advice(&db, &champion_id)
 }

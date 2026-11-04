@@ -59,6 +59,7 @@ pub fn run() {
             let connection = Connection::open(db_path)?;
             connection.execute_batch(include_str!("../data/migrations/0001_initial.sql"))?;
             connection.pragma_update(None, "foreign_keys", "ON")?;
+            providers::aramhex::migrate(&connection)?;
             connection.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?1, 'true')",
                 ["game_detection_enabled"],
@@ -107,6 +108,7 @@ pub fn run() {
                     )
                     .map_err(std::io::Error::other)?;
                 }
+                providers::aramhex::seed(&mut db).map_err(std::io::Error::other)?;
             }
             // Tauri otherwise creates configured webviews before this setup
             // callback. Create them only after AppState is registered so the
@@ -114,7 +116,7 @@ pub fn run() {
             for window_config in &app.config().app.windows {
                 WebviewWindowBuilder::from_config(app.handle(), window_config)?.build()?;
             }
-            providers::opgg::start_rank_sync(app.handle().clone());
+            providers::aramhex::start_sync(app.handle().clone());
             ocr::start_automatic_detection(app.handle().clone());
             game::watcher::start_game_state_monitor(app.handle().clone());
 
@@ -156,7 +158,6 @@ pub fn run() {
             commands::rankings::list_hero_rankings,
             commands::champions::get_hero_detail,
             commands::champions::get_augment_grades,
-            providers::opgg::refresh_champion_augments,
             commands::builds::recommend_build,
             commands::providers::import_rankings_json,
             commands::providers::import_augment_grades_json,

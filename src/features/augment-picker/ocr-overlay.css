@@ -15,6 +15,12 @@
 .ocr-card-canvas { position: absolute; left: 50%; top: 50%; width: min(100%, 177.7778vh); aspect-ratio: 16 / 9; transform: translate(-50%, -50%); }
 .ocr-card-badge { position: absolute; top: 19%; transform: translateX(-50%); display: grid; place-items: center; width: clamp(32px, 3vw, 70px); height: clamp(36px, 3.5vw, 80px); clip-path: polygon(0 0,100% 0,100% 78%,50% 100%,0 78%); color: white; font-size: clamp(20px, 2vw, 46px); font-weight: 800; text-shadow: 0 2px 5px #000a; filter: drop-shadow(0 4px 7px #0008); }
 .ocr-card-notice { position: absolute; left: 50%; top: 15%; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px; background: #182233ee; color: #fff; font-size: 14px; }
+.ocr-card-statistics { position: absolute; bottom: 83.5%; transform: translateX(-50%); width: 16.8%; max-height: 15%; overflow: hidden; box-sizing: border-box; padding: .6% .7%; border: 1px solid #8da5ce55; border-radius: 8px; background: #101923ef; color: #edf3ff; text-shadow: 0 1px 2px #000; font-size: clamp(11px, 1.05vw, 24px); line-height: 1.45; }
+.ocr-card-statistics strong { display: block; font-weight: 650; }
+.ocr-card-statistics strong span { color: #c4cfdf; font-size: .86em; font-weight: 400; }
+.ocr-card-statistics p { margin: .25em 0 0; font-size: .85em; color: #c5d1e2; overflow-wrap: anywhere; }
+.ocr-card-statistics .sample-warning { color: #f2cc8f; }
+.ocr-data-caption { position: absolute; left: 50%; top: 77%; transform: translateX(-50%); max-width: 85%; padding: .3% .7%; border-radius: 5px; background: #101923db; color: #d2dcea; font-size: clamp(10px, .8vw, 18px); text-align: center; }
 
 .ocr-overlay-root {
   width: 100%;

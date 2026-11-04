@@ -1,0 +1,5 @@
+# Public snapshot hashes cover the exact upstream bytes. Preserve them on
+# Windows checkouts even when core.autocrlf is enabled.
+data/seed/aramhex/** -text
+# Preserve the upstream license verbatim, including its final blank line.
+data/seed/aramhex/LICENSE whitespace=-blank-at-eof

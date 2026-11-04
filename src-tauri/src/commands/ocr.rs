@@ -3,7 +3,6 @@ use crate::{
     ocr::{is_safe_name_match_for_overlay, match_augment_name, OcrScreenResult},
     AppState,
 };
-use rusqlite::OptionalExtension;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewWindow};
 
@@ -51,14 +50,9 @@ fn recognize_impl(
         .lock()
         .map_err(|_| "本地数据库锁定失败".to_string())?;
     let (champion_name, grade_rows) = if let Some(id) = champion_id.as_deref() {
-        let name = db
-            .query_row(
-                "SELECT name FROM champions WHERE champion_id = ?1 COLLATE NOCASE OR name = ?1 COLLATE NOCASE LIMIT 1",
-                [id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| format!("读取当前英雄失败：{error}"))?;
+        let name = crate::db::resolve_champion_identity(&db, id, None)
+            .map_err(|error| format!("读取当前英雄失败：{error}"))?
+            .map(|(_, name)| name);
         let grades = load_grades(&db, id)?;
         (name, grades)
     } else {
@@ -73,10 +67,9 @@ fn recognize_impl(
         "已识别卡片，但本地还没有该英雄的海克斯分级数据。".to_string()
     } else if cards.iter().all(|card| card.raw_text.is_empty()) {
         "暂时没读清卡片标题，请确认海克斯选择界面在前台后重试。".to_string()
-    } else if grade_rows.first().is_some_and(|row| row.reason == "OP.GG 该英雄海克斯等级") {
-        format!("OP.GG 海克斯等级 · {} · OCR 结果仅供参考", grade_rows.first().and_then(|row| row.patch.as_deref()).unwrap_or("版本未知"))
     } else {
-        format!("本地海克斯缓存 · {} · OCR 结果仅供参考", grade_rows.first().and_then(|row| row.patch.as_deref()).unwrap_or("版本未核实"))
+        let source = if grade_rows.iter().any(|row| row.win_rate.is_some()) { "AramHex" } else { "本地缓存" };
+        format!("{source} · {} · 本应用 S/A/B 评级 · 历史样本，仅供参考", grade_rows.first().and_then(|row| row.patch.as_deref()).unwrap_or("版本未核实"))
     };
 
     Ok(Some(OcrOverlayPayload {
@@ -92,25 +85,7 @@ fn load_grades(
     db: &rusqlite::Connection,
     champion_id: &str,
 ) -> Result<Vec<AugmentGradeRow>, String> {
-    let mut statement = db
-        .prepare(
-            "SELECT champion_id, augment_id, name, grade, reason, patch FROM champion_augment_grades WHERE champion_id = ?1 COLLATE NOCASE ORDER BY CASE grade WHEN 'S' THEN 0 WHEN 'A' THEN 1 ELSE 2 END, name COLLATE NOCASE",
-        )
-        .map_err(|error| format!("准备海克斯查询失败：{error}"))?;
-    let rows = statement
-        .query_map([champion_id], |row| {
-            Ok(AugmentGradeRow {
-                champion_id: row.get(0)?,
-                augment_id: row.get(1)?,
-                name: row.get(2)?,
-                grade: row.get(3)?,
-                reason: row.get(4)?,
-                patch: row.get(5)?,
-            })
-        })
-        .map_err(|error| format!("查询海克斯建议失败：{error}"))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("读取海克斯建议失败：{error}"))
+    crate::db::load_augment_advice(db, champion_id)
 }
 
 fn make_advice_cards(screen: &OcrScreenResult, grades: &[AugmentGradeRow]) -> Vec<OcrCardAdvice> {
@@ -140,8 +115,11 @@ fn make_advice_cards(screen: &OcrScreenResult, grades: &[AugmentGradeRow]) -> Ve
                 },
                 matched_name,
                 candidate_name,
-                grade: row.map(|row| row.grade.clone()),
+                grade: row.and_then(|row| row.grade.clone()),
                 reason: row.map(|row| row.reason.clone()),
+                win_rate: row.and_then(|row| row.win_rate),
+                games: row.and_then(|row| row.games),
+                low_sample: row.is_some_and(|row| row.low_sample),
             }
         })
         .collect()

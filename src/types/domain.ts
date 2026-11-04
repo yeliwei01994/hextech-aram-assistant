@@ -49,6 +49,9 @@ export interface OcrCardAdvice {
   candidate_name: string | null;
   grade: "S" | "A" | "B" | null;
   reason: string | null;
+  win_rate?: number | null;
+  games?: number | null;
+  low_sample?: boolean;
 }
 
 export interface OcrOverlayPayload {
@@ -87,9 +90,13 @@ export interface AugmentGradeRow {
   champion_id: string;
   augment_id: string;
   name: string;
-  grade: "S" | "A" | "B";
+  grade: "S" | "A" | "B" | null;
   reason: string;
   patch: string | null;
+  win_rate: number | null;
+  games: number | null;
+  delta_pp: number | null;
+  low_sample: boolean;
 }
 
 export type ThreatTag = "physical" | "magic" | "healing" | "shielding" | "durable";

@@ -260,7 +260,7 @@ fn spawn_worker(mut command: Command) -> Result<WorkerProcess, String> {
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(if cfg!(debug_assertions) { Stdio::inherit() } else { Stdio::null() });
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

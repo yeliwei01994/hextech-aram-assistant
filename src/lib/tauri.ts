@@ -40,11 +40,6 @@ export async function getAugmentGrades(championId: string): Promise<AugmentGrade
   return [];
 }
 
-export async function refreshChampionAugments(championId: string): Promise<number> {
-  if (!isTauri()) return 0;
-  return invoke<number>("refresh_champion_augments", { championId });
-}
-
 export async function recommendBuild(input: TeamBuildInput): Promise<BuildAdvice> {
   if (isTauri()) return invoke<BuildAdvice>("recommend_build", { input });
   return { allies_complete: input.allies_complete, enemies_complete: input.enemies_complete, suggestions: [], inferred_enemy_tags: [], ai_status: "disabled", ai_summary: null };

@@ -43,6 +43,21 @@ try {
     Copy-Item -Path (Join-Path $ocrRoot '*') `
         -Destination (Join-Path $ocrDestination 'dist\aram-ocr') -Recurse -Force
 
+    $licenseDir = Join-Path $portableDir 'licenses'
+    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'data\seed\aramhex\LICENSE') `
+        -Destination (Join-Path $licenseDir 'AramHex-data-CC-BY-NC-4.0.txt')
+    $sourceNotes = Get-Content (Join-Path $repoRoot 'docs\data-sources.md') -Raw -Encoding UTF8
+    $sourceNotes = $sourceNotes.Replace('../data/seed/aramhex/LICENSE', 'licenses/AramHex-data-CC-BY-NC-4.0.txt')
+    $sourceNotes = $sourceNotes.Replace('../data/', 'https://github.com/yeliwei01994/hextech-aram-assistant/blob/main/data/')
+    [IO.File]::WriteAllText(
+        (Join-Path $portableDir '数据来源与评级说明.md'),
+        $sourceNotes,
+        [Text.UTF8Encoding]::new($true)
+    )
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md') `
+        -Destination (Join-Path $portableDir '更新记录.md')
+
     $readme = @'
 海克斯大乱斗小助手 __APP_VERSION__ · 免安装版
 
@@ -54,6 +69,17 @@ try {
 运行环境
 需要 Microsoft Edge WebView2 Runtime。若启动时提示缺少 WebView2，请安装微软运行时：
 https://go.microsoft.com/fwlink/p/?LinkId=2124703
+
+数据与更新
+英雄排名、海克斯胜率来自 https://github.com/czgreat/aramhex-data。
+启动时及每 6 小时检查更新；失败后 15 分钟重试，离线时继续使用本地缓存。
+S/A/B 与英雄 1–5 档为本应用评级；统计只供参考，样本少会明确提示。
+统计数据采用 CC BY-NC 4.0，需署名、仅限非商业使用。
+完整许可见 licenses/AramHex-data-CC-BY-NC-4.0.txt。
+
+升级
+先退出旧版托盘程序，再运行新文件夹里的程序。
+旧版本地数据库会自动升级，不需要删除缓存。
 
 卸载
 先右键托盘图标退出，再删除解压出来的整个文件夹即可。

@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "海克斯大乱斗小助手",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.aramcompanion.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://127.0.0.1:1420",
+    "devUrl": "http://127.0.0.1:15173",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },

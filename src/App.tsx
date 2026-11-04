@@ -10,7 +10,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { getAiSettings, getAppStatus, getGameDetectionSettings, getGameState, hideOcrOverlay, importAugmentGradesJson, importRankingsJson, recognizeCurrentScreen, refreshChampionAugments, saveAiSettings, saveGameDetectionSettings, showOcrOverlay } from "./lib/tauri";
+import { getAiSettings, getAppStatus, getGameDetectionSettings, getGameState, hideOcrOverlay, importAugmentGradesJson, importRankingsJson, recognizeCurrentScreen, saveAiSettings, saveGameDetectionSettings, showOcrOverlay } from "./lib/tauri";
 import { getNotificationPermission, requestNotificationPermission, sendAppNotification } from "./lib/notifications";
 import type { AiSettingsView, AppStatus, GameDetectionSettings, GameState } from "./types/domain";
 
@@ -38,7 +38,6 @@ function App() {
   const pendingAutoRecognition = useRef(false);
   const autoDetectionActive = useRef(false);
   const autoDismissedUntilExit = useRef(false);
-  const refreshedAugments = useRef(new Set<string>());
   gameStateRef.current = gameState;
 
   useEffect(() => {
@@ -116,6 +115,7 @@ function App() {
     register("rankings:updated", () => {
       setRefreshKey((current) => current + 1);
       void getGameState().then(applyGameState).catch(() => undefined);
+      if (autoDetectionActive.current && !autoDismissedUntilExit.current) recognize(true);
     });
     register("ocr:hide", () => {
       if (autoDetectionActive.current) autoDismissedUntilExit.current = true;
@@ -157,16 +157,6 @@ function App() {
       unlisten.forEach((stop) => stop());
     };
   }, []);
-
-  useEffect(() => {
-    const championId = gameState.player_champion_id;
-    if (!championId || !/^[a-z0-9]+$/i.test(championId) || refreshedAugments.current.has(championId.toLowerCase())) return;
-    refreshedAugments.current.add(championId.toLowerCase());
-    void refreshChampionAugments(championId).then(() => setRefreshKey((key) => key + 1)).catch((error) => {
-      refreshedAugments.current.delete(championId.toLowerCase());
-      console.warn("海克斯同步失败，继续使用本地数据", error);
-    });
-  }, [gameState.player_champion_id]);
 
   return <div className="app-shell"><main className="main-area">
     <header className="compact-header">
@@ -258,7 +248,7 @@ function SettingsPage({ status, gameState, error, onImported }: { status: AppSta
     <div className="page-heading"><div><div className="eyebrow">PREFERENCES</div><h1>设置</h1><p>助手在后台托盘运行，游戏内提示会自动显示。</p></div></div>
     <div className="bottom-hint"><Sparkles size={14} /><span>右键系统托盘图标可打开设置或退出；海克斯卡片自动识别无需快捷键。Ctrl+Shift+F6 重识别、Ctrl+Shift+F7 刷新状态、Ctrl+Shift+F8 隐藏浮层（需 Windows 允许注册快捷键）。</span></div>
     <div className="settings-grid">
-      <section className="settings-card content-panel"><div className="settings-card-title"><div className="settings-icon blue"><Database size={17} /></div><div><h2>数据状态</h2><p>英雄排名与海克斯推荐分别记录来源</p></div></div><div className="settings-rows"><SettingRow label="英雄总榜" value={error ? "核心暂不可用" : status?.data_status.ready ? `${status.data_status.stale ? "使用缓存" : "已载入"} · ${status.data_status.patch || "补丁未标注"}` : "等待 OP.GG 同步"} /><SettingRow label="海克斯推荐" value={status?.data_status.augment_ready ? "选择英雄后自动更新 · 推荐版本随数据同步" : "选择英雄后同步"} /><SettingRow label="英雄榜来源" value={status?.data_status.source || "OP.GG"} /><SettingRow label="海克斯来源" value="OP.GG（按英雄同步） / 本地缓存" /><SettingRow label="快照生成时间" value={status?.data_status.updated_at || status?.data_status.augment_updated_at || "—"} /></div><div className="import-actions"><label className="import-action"><input type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0], "rankings", event.currentTarget)} /><span><ArrowDownToLine size={14} />导入英雄榜 JSON</span><small>替换当前榜单快照</small></label><label className="import-action"><input type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0], "augments", event.currentTarget)} /><span><ArrowDownToLine size={14} />导入海克斯分级 JSON</span><small>更新 S / A / B 推荐</small></label></div>{importNotice && <div className={`import-notice ${importNotice.error ? "error" : "success"}`} role="status">{importNotice.text}</div>}<div className="settings-tip"><CircleHelp size={14} />启动时同步英雄榜；选择英雄后同步该英雄的海克斯等级，网络异常时继续使用本地缓存。</div></section>
+      <section className="settings-card content-panel"><div className="settings-card-title"><div className="settings-icon blue"><Database size={17} /></div><div><h2>数据状态</h2><p>英雄排名与海克斯推荐分别记录来源</p></div></div><div className="settings-rows"><SettingRow label="英雄总榜" value={error ? "核心暂不可用" : status?.data_status.ready ? `${status.data_status.stale ? "使用缓存" : "已载入"} · ${status.data_status.patch || "补丁未标注"}` : "等待 AramHex 同步"} /><SettingRow label="海克斯推荐" value={status?.data_status.augment_ready ? `${status.data_status.augment_stale ? "使用缓存" : "已载入"} · ${status.data_status.augment_patch || "版本未标注"}` : "等待同步"} /><SettingRow label="英雄榜来源" value={status?.data_status.source || "AramHex"} /><SettingRow label="海克斯来源" value={status?.data_status.augment_source || "AramHex / 本地缓存"} /><SettingRow label="快照生成时间" value={status?.data_status.updated_at || status?.data_status.augment_updated_at || "—"} /></div><div className="import-actions"><label className="import-action"><input type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0], "rankings", event.currentTarget)} /><span><ArrowDownToLine size={14} />导入英雄榜 JSON</span><small>替换当前榜单快照</small></label><label className="import-action"><input type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0], "augments", event.currentTarget)} /><span><ArrowDownToLine size={14} />导入海克斯分级 JSON</span><small>更新 S / A / B 推荐</small></label></div>{importNotice && <div className={`import-notice ${importNotice.error ? "error" : "success"}`} role="status">{importNotice.text}</div>}<div className="settings-tip"><CircleHelp size={14} />启动时及每 6 小时检查数据更新，失败后 15 分钟重试；离线时使用本地缓存。英雄 1–5 档按胜率排名每 20% 分组，1 档最高；S/A/B 为本应用海克斯评级。数据：AramHex · CC BY-NC 4.0，仅限非商业使用。</div></section>
       <section className="settings-card content-panel"><div className="settings-card-title"><div className="settings-icon teal"><Crosshair size={17} /></div><div><h2>游戏客户端</h2><p>选人排名和海克斯提示在游戏内自动显示</p></div></div><div className="connection-state"><span className="connection-state-icon">{gameState.connected ? <Wifi size={18} /> : <WifiOff size={18} />}</span><div><strong>{gameState.connected ? "客户端已连接" : gameSettings.enabled ? "等待客户端连接" : "自动识别已关闭"}</strong><p>{gameState.phase === "champ_select" ? "选人阶段" : gameState.phase === "in_game" ? "对局进行中" : gameState.phase === "loading" ? "正在加载对局" : gameState.player_champion_name || "手动模式可用"}</p></div><span className={`state-dot ${gameState.connected ? "connected" : ""}`} /></div><div className="optional-setting"><div><strong>自动识别当前英雄</strong><p>{gameSettings.enabled ? "已开启 · 读取本机客户端状态" : "已关闭 · 不扫描客户端进程"}</p></div><button className={`toggle ${gameSettings.enabled ? "on" : ""}`} role="switch" aria-checked={gameSettings.enabled} aria-label="自动识别当前英雄" disabled={gameSettingsLoading || gameSettingsSaving} onClick={() => void toggleGameDetection()}><span /></button></div>{gameNotice && <div className={`import-notice ${gameNotice.error ? "error" : "success"}`} role="status">{gameNotice.text}</div>}<div className="optional-setting"><div><strong>Windows 通知</strong><p>{notificationPermission === "granted" ? "已允许 · 启动和连接时提示" : notificationPermission === "denied" ? "未允许 · 游戏浮层仍可正常使用" : "尚未授权 · 首次启动时会自动请求"}</p></div>{notificationPermission !== "granted" && <button className="save-ai-button" onClick={() => void retryNotificationPermission()}>请求权限</button>}</div>{notificationNotice && <div className="import-notice success" role="status">{notificationNotice}</div>}<div className="settings-tip"><Shield size={14} />仅开启后读取英雄联盟客户端本地状态；凭据只用于本机连接，不会上传。</div></section>
       <section className="settings-card settings-card-ai content-panel"><div className="settings-card-title"><div className="settings-icon violet"><Sparkles size={17} /></div><div><h2>AI 与隐私</h2><p>按需启用，分析时才发送请求</p></div></div><div className="ai-fields-grid"><label className="ai-field"><span>兼容接口地址</span><input value={aiSettings.endpoint} onChange={(event) => setAiSettings({ ...aiSettings, endpoint: event.target.value })} placeholder="https://api.openai.com/v1" /></label><label className="ai-field"><span>模型名称</span><input value={aiSettings.model} onChange={(event) => setAiSettings({ ...aiSettings, model: event.target.value })} placeholder="填写服务商提供的模型 ID" /></label><label className="ai-field ai-field-key"><span>API 密钥 {aiSettings.key_configured && <em>已保存</em>}</span><input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={aiSettings.key_configured ? "留空以保留已保存密钥" : "粘贴你的 API 密钥"} /></label></div><div className="optional-setting"><div><strong>分析时调用 AI</strong><p>{aiSettings.enabled ? "已开启 · 点击分析阵容时发送" : "已关闭 · 只使用离线规则"}</p></div><button className={`toggle ${aiSettings.enabled ? "on" : ""}`} role="switch" aria-checked={aiSettings.enabled} aria-label="启用外部 AI 分析" onClick={() => setAiSettings({ ...aiSettings, enabled: !aiSettings.enabled })}><span /></button></div><button className="save-ai-button" onClick={saveAi} disabled={savingAi}><ArrowDownToLine size={13} />{savingAi ? "保存中…" : "保存 AI 设置"}</button>{aiNotice && <div className={`import-notice ${aiNotice.error ? "error" : "success"}`} role="status">{aiNotice.text}</div>}<div className="settings-tip"><Shield size={14} />只有你启用并点击分析时，敌方英雄名称和手动威胁标签才会发往所填服务；不会发送我方阵容、截图或账号信息。</div></section>
     </div>

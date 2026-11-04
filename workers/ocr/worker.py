@@ -233,7 +233,16 @@ def create_engine() -> Any:
 
     from rapidocr import RapidOCR
 
-    return RapidOCR()
+    return RapidOCR(params={
+        # These are narrow title strips, not full-page images. The default
+        # minimum-side resize blows them up to several thousand pixels wide.
+        "Det.limit_type": "max",
+        "Det.limit_side_len": 640,
+        # Small batches share the CPU with the game; avoid three model sessions
+        # each creating a machine-sized thread pool.
+        "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+        "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+    })
 
 
 def recognize_cards(engine: Any, images: list[Image.Image]) -> list[tuple[str, float]]:

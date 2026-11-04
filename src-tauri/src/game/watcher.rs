@@ -487,17 +487,7 @@ fn resolve_champion(
     champion_id: &str,
     name_hint: Option<&str>,
 ) -> Result<Option<(String, String, Option<ChampionRankRow>)>, String> {
-    let champion = db
-        .query_row(
-            "SELECT champion_id, name FROM champions
-             WHERE champion_id = ?1 COLLATE NOCASE
-                OR name = ?1 COLLATE NOCASE
-                OR (?2 IS NOT NULL AND name = ?2 COLLATE NOCASE)
-             LIMIT 1",
-            rusqlite::params![champion_id, name_hint],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()
+    let champion = crate::db::resolve_champion_identity(db, champion_id, name_hint)
         .map_err(|error| format!("查询当前英雄失败：{error}"))?;
     let Some((resolved_id, name)) = champion else {
         return Ok(Some((

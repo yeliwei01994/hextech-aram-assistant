@@ -22,6 +22,7 @@ const EMPTY_GAME_STATE: GameState = {
   player_champion_id: null,
   player_champion_name: null,
   ranking: null,
+  team: [],
   bench: [],
 };
 

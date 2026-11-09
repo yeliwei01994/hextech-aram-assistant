@@ -2,11 +2,11 @@
 
 简体中文 Windows 桌面助手，在《英雄联盟》极地大乱斗中显示英雄排名和海克斯推荐。应用启动后常驻系统托盘，识别和 OCR 都在本机进行。
 
-> 当前发布：v0.1.1 免安装版。安装器暂不发布。逐条更新内容见 [更新记录](CHANGELOG.md)。
+> 当前发布：v0.1.2 免安装版。安装器暂不发布。逐条更新内容见 [更新记录](CHANGELOG.md)。
 
 ## 下载与启动
 
-**[下载 v0.1.1 免安装压缩包](https://github.com/yeliwei01994/hextech-aram-assistant/releases/download/v0.1.1/HextechAramAssistant-0.1.1-portable.zip)**
+**[下载 v0.1.2 免安装压缩包](https://github.com/yeliwei01994/hextech-aram-assistant/releases/download/v0.1.2/HextechAramAssistant-0.1.2-portable.zip)**
 
 1. 下载 ZIP 并完整解压到一个固定文件夹，不要直接在压缩包里运行。
 2. 双击 `aram-companion.exe`。

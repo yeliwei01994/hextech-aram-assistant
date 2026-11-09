@@ -88,6 +88,7 @@ pub fn map_rank_row(row: &Row<'_>) -> rusqlite::Result<crate::domain::ChampionRa
         badge_tier,
         patch: row.get(5)?,
         source,
+        win_rate: None,
         updated_at: row.get(7)?,
     })
 }

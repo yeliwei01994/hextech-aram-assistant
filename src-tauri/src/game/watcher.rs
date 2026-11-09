@@ -23,6 +23,7 @@ struct Observation {
     source: Option<String>,
     champion_id: Option<String>,
     champion_name_hint: Option<String>,
+    team: Vec<Option<ObservedChampion>>,
     bench: Vec<ObservedChampion>,
 }
 
@@ -67,6 +68,7 @@ async fn read_game_state(state: &AppState) -> Result<GameState, String> {
             player_champion_id: None,
             player_champion_name: None,
             ranking: None,
+            team: Vec::new(),
             bench: Vec::new(),
         });
     }
@@ -82,6 +84,11 @@ async fn read_game_state(state: &AppState) -> Result<GameState, String> {
     };
 
     let bench = observation.bench.iter().map(|entry| resolve_champion(&db, &entry.id, entry.name_hint.as_deref()).map(|row| row.and_then(|(_, _, rank)| rank))).collect::<Result<Vec<_>, _>>()?;
+    let team = observation.team.iter().map(|entry| match entry {
+        Some(entry) => resolve_champion(&db, &entry.id, entry.name_hint.as_deref())
+            .map(|row| row.and_then(|(_, _, rank)| rank)),
+        None => Ok(None),
+    }).collect::<Result<Vec<_>, _>>()?;
     Ok(GameState {
         enabled: true,
         connected: observation.connected,
@@ -93,6 +100,7 @@ async fn read_game_state(state: &AppState) -> Result<GameState, String> {
             .or(observation.champion_id),
         player_champion_name: champion.as_ref().map(|(_, name, _)| name.clone()),
         ranking: champion.and_then(|(_, _, ranking)| ranking),
+        team,
         bench,
     })
 }
@@ -129,6 +137,7 @@ async fn observe_game() -> Observation {
         source: None,
         champion_id: None,
         champion_name_hint: None,
+        team: Vec::new(),
         bench: Vec::new(),
     })
 }
@@ -353,12 +362,12 @@ async fn observe_lcu(credentials: LcuCredentials) -> Option<Observation> {
         }
         _ => GamePhase::Disconnected,
     };
-    let (champion, bench) = if matches!(phase, GamePhase::ChampSelect) {
+    let (champion, bench, team) = if matches!(phase, GamePhase::ChampSelect) {
         lcu_champ_select_champion(&client, &base_url, &credentials.token).await.unwrap_or_default()
     } else if matches!(phase, GamePhase::InGame | GamePhase::Loading) {
-        (live_client_champion(&client).await, Vec::new())
+        (live_client_champion(&client).await, Vec::new(), Vec::new())
     } else {
-        (None, Vec::new())
+        (None, Vec::new(), Vec::new())
     };
 
     Some(Observation {
@@ -367,15 +376,25 @@ async fn observe_lcu(credentials: LcuCredentials) -> Option<Observation> {
         source: Some("lcu".to_string()),
         champion_id: champion.as_ref().map(|champion| champion.id.clone()),
         champion_name_hint: champion.and_then(|champion| champion.name_hint),
+        team,
         bench,
     })
+}
+
+fn team_champion_ids(session: &Value) -> Vec<Option<i64>> {
+    session.get("myTeam").and_then(Value::as_array).map(|players| {
+        players.iter().take(5).map(|player| {
+            player.get("championId").and_then(Value::as_i64).filter(|id| *id > 0)
+                .or_else(|| player.get("championPickIntent").and_then(Value::as_i64).filter(|id| *id > 0))
+        }).collect()
+    }).unwrap_or_default()
 }
 
 async fn lcu_champ_select_champion(
     client: &Client,
     base_url: &str,
     token: &str,
-) -> Option<(Option<ObservedChampion>, Vec<ObservedChampion>)> {
+) -> Option<(Option<ObservedChampion>, Vec<ObservedChampion>, Vec<Option<ObservedChampion>>)> {
     let response = client
         .get(format!("{base_url}/lol-champ-select/v1/session"))
         .basic_auth("riot", Some(token))
@@ -413,7 +432,9 @@ async fn lcu_champ_select_champion(
             bench.push(entry.unwrap_or(ObservedChampion { id: format!("unknown{id}"), name_hint: None }));
         }
     }
-    Some((champion, bench))
+    let team = team_champion_ids(&session).into_iter()
+        .map(|id| id.and_then(|id| lcu_champion_alias(&summaries, id))).collect();
+    Some((champion, bench, team))
 }
 
 fn lcu_champion_alias(champions: &Value, champion_id: i64) -> Option<ObservedChampion> {
@@ -449,6 +470,7 @@ async fn observe_live_client() -> Option<Observation> {
         source: Some("live_client".to_string()),
         champion_id: Some(champion.id),
         champion_name_hint: champion.name_hint,
+        team: Vec::new(),
         bench: Vec::new(),
     })
 }
@@ -496,7 +518,7 @@ fn resolve_champion(
             None,
         )));
     };
-    let ranking = db
+    let mut ranking = db
         .query_row(
             "SELECT champion_id, name, position, total, badge_tier, patch, source, updated_at FROM champion_rankings WHERE champion_id = ?1",
             [&resolved_id],
@@ -504,12 +526,53 @@ fn resolve_champion(
         )
         .optional()
         .map_err(|error| format!("查询当前英雄排名失败：{error}"))?;
+    if let Some(rank) = ranking.as_mut().filter(|r| r.source.as_deref().is_some_and(|s| s.starts_with("AramHex"))) {
+        let has_cache: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='aramhex_heroes')", [], |row| row.get(0))
+            .map_err(|error| format!("查询胜率缓存失败：{error}"))?;
+        if has_cache {
+            rank.win_rate = db.query_row("SELECT win_rate FROM aramhex_heroes WHERE champion_id=?1", [&resolved_id], |row| row.get::<_, f64>(0))
+                .optional().map_err(|error| format!("查询英雄胜率失败：{error}"))?
+                .filter(|rate| rate.is_finite() && (0.0..=1.0).contains(rate));
+        }
+    }
     Ok(Some((resolved_id, name, ranking)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{champion_from_live_data, parse_lcu_credentials, parse_lcu_lockfile};
+
+    #[test]
+    fn reads_cached_overall_rate_only_for_matching_source() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE champions (champion_id TEXT, name TEXT);
+            CREATE TABLE aramhex_heroes (champion_id TEXT, source_id TEXT, name TEXT, title TEXT, win_rate REAL);
+            CREATE TABLE champion_rankings (champion_id TEXT, name TEXT, position INTEGER, total INTEGER, badge_tier INTEGER, patch TEXT, source TEXT, updated_at TEXT);
+            INSERT INTO champions VALUES ('Ahri','Ahri');
+            INSERT INTO aramhex_heroes VALUES ('Ahri','103','Ahri','Ahri',0.523);
+            INSERT INTO champion_rankings VALUES ('Ahri','Ahri',10,170,NULL,'16.21','AramHex',NULL);").unwrap();
+        let rate = || super::resolve_champion(&db, "103", None).unwrap().unwrap().2.unwrap().win_rate;
+        assert_eq!(rate(), Some(0.523));
+        db.execute("UPDATE aramhex_heroes SET win_rate=2", []).unwrap();
+        assert_eq!(rate(), None);
+        db.execute("UPDATE aramhex_heroes SET win_rate=0.523", []).unwrap();
+        db.execute("UPDATE champion_rankings SET source='Other'", []).unwrap();
+        assert_eq!(rate(), None);
+        db.execute("DELETE FROM aramhex_heroes", []).unwrap();
+        assert!(super::resolve_champion(&db, "Ahri", None).unwrap().unwrap().2.unwrap().win_rate.is_none());
+    }
+
+    #[test]
+    fn team_selection_preserves_empty_slots_and_updates_swaps() {
+        let mut session = serde_json::json!({"myTeam": [
+            {"championId": 103}, {"championId": 0},
+            {"championId": 17}, {"championPickIntent": 22}, {"championId": 99}
+        ]});
+        assert_eq!(super::team_champion_ids(&session), vec![Some(103), None, Some(17), Some(22), Some(99)]);
+        session["myTeam"][0]["championId"] = serde_json::json!(17);
+        assert_eq!(super::team_champion_ids(&session)[0], Some(17));
+        assert!(super::team_champion_ids(&serde_json::json!({})).is_empty());
+    }
 
     #[test]
     fn finds_local_players_champion_from_game_client_data() {

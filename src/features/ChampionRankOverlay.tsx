@@ -17,6 +17,7 @@ const EMPTY: GameState = {
   player_champion_id: null,
   player_champion_name: null,
   ranking: null,
+  team: [],
   bench: [],
 };
 
@@ -43,13 +44,18 @@ export default function ChampionRankOverlay() {
     };
   }, []);
 
-  const rank = game.ranking;
   return (
     <main className="pool-rank-overlay" aria-live="polite">
       {(game.bench || []).map((entry, index) => entry?.position != null ? <div className="pool-rank-badge" key={`${index}-${entry.champion_id}`} style={{ left: `${27.45 + index * 4.58}%` }} title={rankLabel(entry)}>
         <span className="pool-tier">{entry.badge_tier ?? "—"}</span><span>#{entry.position}</span>
       </div> : null)}
-      {rank?.position != null && <div className="selected-rank-badge" title={rankLabel(rank)}><span className="pool-tier">{rank.badge_tier ?? "—"}</span><span>#{rank.position} / {rank.total ?? "—"}</span></div>}
+      {(game.team || []).slice(0, 5).map((entry, index) => (
+        <div className="selected-rank-badge" key={index} style={{ top: `${24.3 + index * 11.1}%` }} title={entry ? rankLabel(entry) : "暂无英雄数据"}>
+          <span className="pool-tier">{entry?.badge_tier ?? "—"}</span>
+          <span>{entry?.position != null ? `#${entry.position}` : "暂无排名"}</span>
+          <span>{entry?.win_rate != null && Number.isFinite(entry.win_rate) ? `胜率 ${(entry.win_rate * 100).toFixed(1)}%` : "暂无胜率"}</span>
+        </div>
+      ))}
     </main>
   );
 }

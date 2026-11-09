@@ -75,6 +75,7 @@ export async function getGameState(): Promise<GameState> {
     player_champion_id: null,
     player_champion_name: null,
     ranking: null,
+    team: [],
     bench: [],
   };
 }

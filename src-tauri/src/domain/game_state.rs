@@ -12,6 +12,8 @@ pub struct GameState {
     pub player_champion_name: Option<String>,
     pub ranking: Option<ChampionRankRow>,
     #[serde(default)]
+    pub team: Vec<Option<ChampionRankRow>>,
+    #[serde(default)]
     pub bench: Vec<Option<ChampionRankRow>>,
 }
 
@@ -19,7 +21,7 @@ pub fn should_show_rank_overlay(state: &GameState) -> bool {
     state.enabled
         && state.connected
         && state.phase == GamePhase::ChampSelect
-        && (!state.bench.is_empty() || state
+        && (state.team.iter().any(Option::is_some) || !state.bench.is_empty() || state
             .player_champion_id
             .as_deref()
             .is_some_and(|champion_id| !champion_id.trim().is_empty()))
@@ -48,6 +50,7 @@ mod tests {
             player_champion_id: champion_id.map(str::to_string),
             player_champion_name: champion_id.map(str::to_string),
             ranking: None,
+            team: Vec::new(),
             bench: Vec::new(),
         }
     }

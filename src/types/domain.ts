@@ -27,6 +27,7 @@ export interface GameState {
   player_champion_id: string | null;
   player_champion_name: string | null;
   ranking: ChampionRankRow | null;
+  team: (ChampionRankRow | null)[];
   bench: (ChampionRankRow | null)[];
 }
 
@@ -68,6 +69,7 @@ export interface SnapshotImportResult {
 }
 
 export interface ChampionRankRow {
+  win_rate?: number | null;
   champion_id: string;
   name: string;
   position: number | null;

@@ -9,5 +9,7 @@ pub struct ChampionRankRow {
     pub badge_tier: Option<u8>,
     pub patch: Option<String>,
     pub source: Option<String>,
+    #[serde(default)]
+    pub win_rate: Option<f64>,
     pub updated_at: Option<String>,
 }

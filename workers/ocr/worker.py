@@ -293,6 +293,54 @@ def recognize_cards(engine: Any, images: list[Image.Image]) -> list[tuple[str, f
     return output
 
 
+def shop_is_visible(rect: dict[str, int]) -> bool:
+    import cv2
+    import numpy as np
+
+    with mss() as capture:
+        frame = np.asarray(capture.grab(rect))
+    height, width = frame.shape[:2]
+    scale = min(1.0, 1200 / width)
+    frame = cv2.resize(frame, (round(width * scale), round(height * scale)),
+                       interpolation=cv2.INTER_AREA)
+    height, width = frame.shape[:2]
+    b, g, r, _ = cv2.split(frame)
+    gold = cv2.inRange(frame, (0, 35, 60, 0), (158, 205, 225, 255))
+    gold[(g > r) | (b.astype(np.int16) + 8 >= g)] = 0
+
+    def lines(horizontal: bool):
+        length = max(5, round((width if horizontal else height) * .15))
+        gap = (15, 1) if horizontal else (1, 15)
+        shape = (length, 1) if horizontal else (1, length)
+        connected = cv2.morphologyEx(gold, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, gap))
+        filtered = cv2.morphologyEx(connected, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, shape))
+        contours, _ = cv2.findContours(filtered, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return [cv2.boundingRect(contour) for contour in contours]
+
+    horizontal = lines(True)
+    for x, y, w, h in lines(False):
+        if h < height * .46:
+            continue
+        tolerance = max(5, round(width * .025))
+        for left, edge, length, _ in horizontal:
+            at_top = abs(edge - y) <= tolerance * 2
+            at_bottom = abs(edge - (y + h)) <= tolerance * 2
+            if length < width * .36 or not (at_top or at_bottom):
+                continue
+            if not 1.15 <= length / h <= 1.75:
+                continue
+            if abs(left + length - x) > tolerance * 2:
+                continue
+            # The shop has a dark blue panel inside its top-right corner.
+            sample_y = edge + 30 if at_top else edge - 100
+            interior = frame[max(0, sample_y):max(0, sample_y + 70), max(0, x - 90):max(0, x - 12), :3]
+            if interior.size:
+                blue, green, red = np.median(interior, axis=(0, 1))
+                if blue < 100 and blue >= green + 3 and green >= red + 6:
+                    return True
+    return False
+
+
 def process_request(
     request: dict[str, Any],
     layout: dict[str, Any],
@@ -318,12 +366,14 @@ def process_request(
         try:
             started = time.perf_counter()
             rect = active_game_client_rect()
-            cards = probe_augment_cards(reference_rect(rect), layout)
+            shop_visible = shop_is_visible(rect)
+            cards = [] if shop_visible else probe_augment_cards(reference_rect(rect), layout)
             required_cards = max(2, len(layout["cards"]) - 1)
             response = {
                 "game_foreground": True,
                 "augment_choice": sum(card["matched"] for card in cards) >= required_cards,
                 "card_metrics": cards,
+                "shop_visible": shop_visible,
                 "game_window": rect,
             }
             elapsed = (time.perf_counter() - started) * 1000

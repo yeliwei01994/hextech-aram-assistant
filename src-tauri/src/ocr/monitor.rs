@@ -28,6 +28,9 @@ fn monitor_loop(app: AppHandle) {
         }
     };
     let mut game_was_running = false;
+    let mut shop_hits = 0u8;
+    let mut shop_misses = 0u8;
+    let mut shop_open = false;
     let mut augment_visible = false;
     let mut positive_probes = 0u8;
     let mut negative_probes = 0u8;
@@ -52,6 +55,7 @@ fn monitor_loop(app: AppHandle) {
         });
 
         if !game_running {
+            update_shop_overlay(&app, None, false, &mut shop_hits, &mut shop_misses, &mut shop_open);
             if game_was_running {
                 let state = app.state::<AppState>();
                 if let Ok(mut ocr) = state.ocr.lock() {
@@ -87,7 +91,7 @@ fn monitor_loop(app: AppHandle) {
         game_was_running = true;
 
         let now = Instant::now();
-        if retry_probe_after.is_some_and(|deadline| now < deadline) {
+        if !shop_open && retry_probe_after.is_some_and(|deadline| now < deadline) {
             thread::sleep(PROBE_INTERVAL);
             continue;
         }
@@ -98,6 +102,12 @@ fn monitor_loop(app: AppHandle) {
             .lock()
             .map_err(|_| "OCR 识别器暂不可用".to_string())
             .and_then(|mut ocr| ocr.probe_current_screen());
+        let shop_bounds = probe_result.as_ref().ok()
+            .filter(|probe| probe.game_foreground && probe.shop_visible)
+            .and_then(|probe| probe.game_window.as_ref());
+        if let Ok(probe) = &probe_result {
+            update_shop_overlay(&app, shop_bounds, probe.game_foreground, &mut shop_hits, &mut shop_misses, &mut shop_open);
+        }
 
         if let Ok(probe) = &probe_result {
             let matching_cards = probe.card_metrics.iter().filter(|card| card.matched).count();
@@ -213,5 +223,44 @@ fn monitor_loop(app: AppHandle) {
         }
 
         thread::sleep(PROBE_INTERVAL);
+    }
+}
+
+fn update_shop_overlay(
+    app: &AppHandle,
+    bounds: Option<&crate::domain::OcrScreenBounds>,
+    game_foreground: bool,
+    hits: &mut u8,
+    misses: &mut u8,
+    open: &mut bool,
+) {
+    let Some(window) = app.get_webview_window("shop-overlay") else { return };
+    if let Some(bounds) = bounds {
+        *misses = 0;
+        *hits = hits.saturating_add(1);
+        if *hits < 2 { return; }
+        if !*open {
+            let shown = crate::commands::ocr::position_overlay(&window, None, Some(bounds))
+                .and_then(|()| window.set_ignore_cursor_events(true).map_err(|e| e.to_string()))
+                .and_then(|()| window.show().map_err(|e| e.to_string()));
+            if let Err(error) = shown {
+                eprintln!("显示装备浮层失败：{error}");
+                return;
+            }
+            eprintln!("装备浮层：已显示");
+            *open = true;
+            let _ = app.emit_to("shop-overlay", "shop:visibility", true);
+        }
+    } else {
+        *hits = 0;
+        *misses = misses.saturating_add(1);
+        if game_foreground && *misses < 2 { return; }
+        if *open {
+            let _ = app.emit_to("shop-overlay", "shop:visibility", false);
+            if window.hide().is_ok() {
+                *open = false;
+                eprintln!("装备浮层：已隐藏");
+            }
+        }
     }
 }

@@ -5,6 +5,60 @@ use crate::{
     AppState,
 };
 use tauri::State;
+use rusqlite::OptionalExtension;
+use serde_json::{json, Value};
+
+#[tauri::command]
+pub async fn get_live_shop_context(state: State<'_, AppState>) -> Result<Option<Value>, String> {
+    if !super::game::get_game_detection_settings(state)?.enabled {
+        return Ok(None);
+    }
+    Ok(crate::game::watcher::live_shop_context().await)
+}
+
+#[tauri::command]
+pub fn get_equipment_stats(champion: String, state: State<'_, AppState>) -> Result<Option<Value>, String> {
+    let db = state.db.lock().map_err(|_| "数据库锁定失败")?;
+    let Some((id, name)) = crate::db::resolve_champion_identity(&db, champion.trim(), None)
+        .map_err(|e| e.to_string())? else { return Ok(None) };
+    let source_id: Option<String> = db.query_row(
+        "SELECT source_id FROM aramhex_heroes WHERE champion_id=?1", [&id], |row| row.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+    let cached: Option<String> = db.query_row(
+        "SELECT value FROM app_settings WHERE key='aramhex_equipment'", [], |row| row.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+    drop(db);
+    let (Some(source_id), Some(cached)) = (source_id, cached) else { return Ok(None) };
+    let snapshot: Value = serde_json::from_str(&cached).map_err(|e| e.to_string())?;
+    let Some(items) = snapshot["hero_items.json"][&source_id].as_object() else { return Ok(None) };
+    let total = snapshot["equipment_heroes.json"][&source_id]["games"].as_u64();
+    let metadata = &snapshot["item_metadata.json"];
+    let mut components = std::collections::HashMap::<&str, Vec<&str>>::new();
+    if let Some(entries) = metadata.as_object() {
+        for (component, item) in entries {
+            for target in item["into"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                components.entry(target).or_default().push(component.as_str());
+            }
+        }
+    }
+    let mut rows = Vec::new();
+    for (item_id, stats) in items {
+        let (Some(games), Some(wins), Some(name)) = (
+            stats["games"].as_u64(), stats["wins"].as_u64(), metadata[item_id]["name"].as_str(),
+        ) else { continue };
+        if games < 300 || wins > games || total.is_some_and(|total| games > total)
+            || stats["low_sample"].as_bool() == Some(true) { continue; }
+        rows.push((games, json!({
+            "id": item_id, "name": name, "games": games, "winRate": wins as f64 / games as f64,
+            "holdingRate": total.map(|total| games as f64 / total as f64),
+            "price": metadata[item_id]["total"].as_u64(),
+            "components": components.get(item_id.as_str()),
+        })));
+    }
+    rows.sort_by_key(|(games, _)| std::cmp::Reverse(*games));
+    Ok(Some(json!({"patch": snapshot["patch"], "champion": name,
+        "items": rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>()})))
+}
 
 #[tauri::command]
 pub async fn recommend_build(

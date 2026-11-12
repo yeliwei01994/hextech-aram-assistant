@@ -16,6 +16,8 @@
 .pool-rank-badge, .selected-rank-badge { position: absolute; display: flex; align-items: center; gap: 3px; padding: 2px 4px; border: 1px solid rgba(137,174,219,.55); border-radius: 5px; background: rgba(12,20,32,.92); color: #eef5ff; font-size: clamp(9px, .65vw, 13px); font-weight: 700; line-height: 1; white-space: nowrap; box-shadow: 0 2px 5px rgba(0,0,0,.45); }
 .pool-rank-badge { top: 8.5%; }
 .selected-rank-badge { left: 9.8%; }
+.draft-traits { color: #a9d9ff; }
+.draft-suggestion { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); padding: 5px 10px; border: 1px solid #89aedb8c; border-radius: 6px; background: #0c1420ef; color: #eef5ff; font-size: clamp(11px, .85vw, 16px); white-space: nowrap; }
 .pool-tier { display: grid; place-items: center; min-width: 1.15em; height: 1.25em; padding: 0 2px; border-radius: 3px; background: #1687e8; color: white; }
 
 .champion-rank-overlay {

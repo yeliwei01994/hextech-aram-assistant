@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { GameState } from "../types/domain";
+import { draftLabels, recommendDraftSwap } from "./draft-advice";
 
 function rankLabel(rank: NonNullable<GameState["ranking"]>) {
   const tier = rank.badge_tier == null ? "" : rank.source?.startsWith("AramHex")
@@ -44,8 +45,14 @@ export default function ChampionRankOverlay() {
     };
   }, []);
 
+  const suggestion = recommendDraftSwap(game);
+  const identified = game.team.filter((entry) => entry != null).length;
+
   return (
     <main className="pool-rank-overlay" aria-live="polite">
+      {identified > 0 && <div className="draft-suggestion">{suggestion
+        ? `阵容参考 · 可换 ${suggestion.entry.name} · ${suggestion.reasons.join("、")}`
+        : `阵容分析 · 已识别 ${identified}/5 · 暂无明确换人建议`}</div>}
       {(game.bench || []).map((entry, index) => entry?.position != null ? <div className="pool-rank-badge" key={`${index}-${entry.champion_id}`} style={{ left: `${27.45 + index * 4.58}%` }} title={rankLabel(entry)}>
         <span className="pool-tier">{entry.badge_tier ?? "—"}</span><span>#{entry.position}</span>
       </div> : null)}
@@ -54,6 +61,7 @@ export default function ChampionRankOverlay() {
           <span className="pool-tier">{entry?.badge_tier ?? "—"}</span>
           <span>{entry?.position != null ? `#${entry.position}` : "暂无排名"}</span>
           <span>{entry?.win_rate != null && Number.isFinite(entry.win_rate) ? `胜率 ${(entry.win_rate * 100).toFixed(1)}%` : "暂无胜率"}</span>
+          {entry && <span className="draft-traits">{draftLabels(entry.champion_id).join(" · ") || "能力待评估"}</span>}
         </div>
       ))}
     </main>

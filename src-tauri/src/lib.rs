@@ -159,6 +159,8 @@ pub fn run() {
             commands::champions::get_hero_detail,
             commands::champions::get_augment_grades,
             commands::builds::recommend_build,
+            commands::builds::get_equipment_stats,
+            commands::builds::get_live_shop_context,
             commands::providers::import_rankings_json,
             commands::providers::import_augment_grades_json,
             commands::ai::get_ai_settings,

@@ -157,7 +157,7 @@ pub fn hide_ocr_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn position_overlay(
+pub(crate) fn position_overlay(
     window: &WebviewWindow,
     captured_monitor: Option<&OcrScreenBounds>,
     game_window: Option<&OcrScreenBounds>,

@@ -12,6 +12,10 @@
 }
 
 .ocr-card-overlay { position: relative; width: 100%; height: 100%; pointer-events: none; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
+.shop-advice { position: absolute; left: 68%; top: 12%; width: min(28%, 360px); box-sizing: border-box; padding: 12px; border: 1px solid #617d9b; border-radius: 8px; background: #101923f5; color: #eef5ff; font: clamp(11px, 1vw, 18px) "Microsoft YaHei UI", sans-serif; pointer-events: none; }
+.shop-advice small, .shop-advice li span { display: block; color: #c4cfdf; }
+.shop-advice ol { margin: 8px 0 0; padding-left: 1.5em; }
+.shop-advice li { margin-top: .4em; }
 .ocr-card-canvas { position: absolute; left: 50%; top: 50%; width: min(100%, 177.7778vh); aspect-ratio: 16 / 9; transform: translate(-50%, -50%); }
 .ocr-card-badge { position: absolute; top: 19%; transform: translateX(-50%); display: grid; place-items: center; width: clamp(32px, 3vw, 70px); height: clamp(36px, 3.5vw, 80px); clip-path: polygon(0 0,100% 0,100% 78%,50% 100%,0 78%); color: white; font-size: clamp(20px, 2vw, 46px); font-weight: 800; text-shadow: 0 2px 5px #000a; filter: drop-shadow(0 4px 7px #0008); }
 .ocr-card-notice { position: absolute; left: 50%; top: 15%; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px; background: #182233ee; color: #fff; font-size: 14px; }

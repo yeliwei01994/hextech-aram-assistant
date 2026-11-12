@@ -23,6 +23,8 @@ pub struct OcrWorkerResponse {
 #[derive(Deserialize)]
 pub struct OcrProbeResponse {
     #[serde(default)]
+    pub shop_visible: bool,
+    #[serde(default)]
     pub game_foreground: bool,
     #[serde(default)]
     pub augment_choice: bool,
@@ -64,6 +66,7 @@ pub struct OcrScreenResult {
 }
 
 pub struct OcrProbeResult {
+    pub shop_visible: bool,
     pub game_foreground: bool,
     pub augment_choice: bool,
     pub card_metrics: Vec<OcrCardProbeMetric>,

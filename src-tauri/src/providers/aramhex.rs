@@ -527,6 +527,9 @@ async fn sync(app: &AppHandle) -> Result<bool, String> {
         .await?;
     let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     manifest.validate()?;
+    if let Err(error) = sync_equipment(app, &clients, &manifest).await {
+        eprintln!("AramHex 装备同步失败：{error}");
+    }
     {
         let state = app.state::<AppState>();
         let db = state.db.lock().map_err(|_| "数据库锁定失败")?;
@@ -560,6 +563,50 @@ async fn sync(app: &AppHandle) -> Result<bool, String> {
     let mut db = state.db.lock().map_err(|_| "数据库锁定失败")?;
     data.import(&mut db)?;
     Ok(true)
+}
+
+async fn sync_equipment(app: &AppHandle, clients: &DownloadClients, manifest: &Manifest) -> Result<(), String> {
+    let names = ["hero_items.json", "equipment_heroes.json", "item_metadata.json"];
+    if !names.iter().all(|name| manifest.files.contains_key(*name)) {
+        return Ok(());
+    }
+    let key = "aramhex_equipment";
+    let seq = manifest.seq.to_string();
+    {
+        let state = app.state::<AppState>();
+        let db = state.db.lock().map_err(|_| "数据库锁定失败")?;
+        let cached: Option<String> = db.query_row(
+            "SELECT value FROM app_settings WHERE key='aramhex_equipment_seq'", [], |row| row.get(0),
+        ).optional().map_err(|e| e.to_string())?;
+        if cached.and_then(|value| value.parse::<u64>().ok()).is_some_and(|value| value >= manifest.seq) {
+            return Ok(());
+        }
+    }
+    let mut snapshot = serde_json::json!({"patch": manifest.patch});
+    for name in names {
+        let limit = manifest.files[name].size;
+        if limit == 0 || limit > MAX_FILE_BYTES {
+            return Err(format!("装备数据文件大小无效：{name}"));
+        }
+        let bytes = clients.fetch(
+            &format!("data-v{}", manifest.seq),
+            &format!("{}/{name}", manifest.path),
+            limit,
+            |bytes| manifest.verify(name, bytes),
+        ).await?;
+        let data: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if !data.is_object() {
+            return Err(format!("装备数据格式无效：{name}"));
+        }
+        snapshot[name] = data;
+    }
+    let state = app.state::<AppState>();
+    let db = state.db.lock().map_err(|_| "数据库锁定失败")?;
+    db.execute(
+        "INSERT OR REPLACE INTO app_settings (key,value) VALUES (?1,?2),('aramhex_equipment_seq',?3)",
+        params![key, snapshot.to_string(), seq],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn start_sync(app: AppHandle) {

@@ -476,6 +476,11 @@ async fn observe_live_client() -> Option<Observation> {
 }
 
 async fn live_client_champion(client: &Client) -> Option<ObservedChampion> {
+    let (active, players) = live_client_data(client).await?;
+    champion_from_live_data(&active, &players)
+}
+
+async fn live_client_data(client: &Client) -> Option<(Value, Value)> {
     let response = client
         .get("https://127.0.0.1:2999/liveclientdata/activeplayer")
         .send()
@@ -487,21 +492,59 @@ async fn live_client_champion(client: &Client) -> Option<ObservedChampion> {
     let active: Value = response.json().await.ok()?;
     let players: Value = client.get("https://127.0.0.1:2999/liveclientdata/playerlist")
         .send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
-    champion_from_live_data(&active, &players)
+    Some((active, players))
+}
+
+fn active_player_row<'a>(active: &Value, players: &'a Value) -> Option<&'a Value> {
+    let players = players.as_array()?;
+    ["riotId", "summonerName"].into_iter().find_map(|key| {
+        let value = active.get(key)?.as_str()?.trim();
+        if value.is_empty() { return None; }
+        let mut matches = players.iter().filter(|player| player.get(key).and_then(Value::as_str) == Some(value));
+        let player = matches.next()?;
+        matches.next().is_none().then_some(player)
+    })
 }
 
 fn champion_from_live_data(active: &Value, players: &Value) -> Option<ObservedChampion> {
-    let players = players.as_array()?;
-    let player = ["riotId", "summonerName"].into_iter().find_map(|key| {
-        let value = active.get(key)?.as_str()?.trim();
-        if value.is_empty() { return None; }
-        players.iter().find(|player| player.get(key).and_then(Value::as_str) == Some(value))
-    })?;
+    observed_live_champion(active_player_row(active, players)?)
+}
+
+fn observed_live_champion(player: &Value) -> Option<ObservedChampion> {
     let name = player.get("championName").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
     let alias = player.get("rawChampionName").and_then(Value::as_str)
         .and_then(|raw| raw.strip_prefix("game_character_displayname_"))
         .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric()));
     Some(ObservedChampion { id: alias.or(name)?.to_string(), name_hint: name.map(str::to_string) })
+}
+
+pub(crate) async fn live_shop_context() -> Option<Value> {
+    let client = Client::builder()
+        .no_proxy()
+        .danger_accept_invalid_certs(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(2))
+        .build().ok()?;
+    let (active, players) = live_client_data(&client).await?;
+    let player = active_player_row(&active, &players)?;
+    let champion = observed_live_champion(player)?;
+    let opponents = match player["team"].as_str() {
+        Some("ORDER") => Some("CHAOS"),
+        Some("CHAOS") => Some("ORDER"),
+        _ => None,
+    };
+    let enemies: Vec<_> = players.as_array()?.iter()
+        .filter(|row| opponents.is_some_and(|team| row["team"].as_str() == Some(team)))
+        .filter_map(observed_live_champion)
+        .map(|enemy| serde_json::json!({"id": enemy.id, "name": enemy.name_hint}))
+        .collect();
+    let owned = player["items"].as_array().map(|items| items.iter()
+        .filter_map(|item| item["itemID"].as_u64().map(|id| id.to_string()))
+        .collect::<Vec<_>>());
+    Some(serde_json::json!({
+        "champion": champion.id, "enemies": enemies, "owned": owned,
+        "gold": active["currentGold"].as_f64().filter(|gold| gold.is_finite() && *gold >= 0.0),
+    }))
 }
 
 fn resolve_champion(

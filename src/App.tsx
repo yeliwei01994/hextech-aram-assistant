@@ -33,8 +33,12 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const gameStateRef = useRef(gameState);
   const connectedNotified = useRef(false);
-  const notificationsReady = useRef(false);
+  const notificationsGranted = useRef(false);
   const pendingConnectionNotification = useRef(false);
+  const connectionNotificationInFlight = useRef(false);
+  const connectionNotificationAttempts = useRef(0);
+  const connectionNotificationRetryTimer = useRef<number | null>(null);
+  const retryConnectionNotificationRef = useRef<() => void>(() => undefined);
   const ocrBusy = useRef(false);
   const pendingAutoRecognition = useRef(false);
   const autoDetectionActive = useRef(false);
@@ -55,20 +59,58 @@ function App() {
         else unlisten.push(stop);
       }).catch((error) => console.warn(`注册后台事件 ${name} 失败`, error));
     };
+    const retryConnectionNotification = () => {
+      const current = gameStateRef.current;
+      if (!notificationsGranted.current
+        || !pendingConnectionNotification.current
+        || connectedNotified.current
+        || connectionNotificationInFlight.current
+        || connectionNotificationAttempts.current >= 3
+        || !current.enabled
+        || !current.connected) return;
+
+      if (connectionNotificationRetryTimer.current !== null) {
+        window.clearTimeout(connectionNotificationRetryTimer.current);
+        connectionNotificationRetryTimer.current = null;
+      }
+      connectionNotificationAttempts.current += 1;
+      connectionNotificationInFlight.current = true;
+      void sendAppNotification("已连接英雄联盟", "本地识别已就绪，选人排名与海克斯提示会自动显示。")
+        .then((sent) => {
+          const latest = gameStateRef.current;
+          if (sent && latest.enabled && latest.connected) {
+            connectedNotified.current = true;
+            pendingConnectionNotification.current = false;
+            connectionNotificationAttempts.current = 0;
+          } else if (notificationsGranted.current
+            && pendingConnectionNotification.current
+            && latest.enabled
+            && latest.connected
+            && connectionNotificationAttempts.current < 3) {
+            connectionNotificationRetryTimer.current = window.setTimeout(() => {
+              connectionNotificationRetryTimer.current = null;
+              retryConnectionNotification();
+            }, 1000);
+          }
+        })
+        .finally(() => { connectionNotificationInFlight.current = false; });
+    };
+    retryConnectionNotificationRef.current = retryConnectionNotification;
     const applyGameState = (next: GameState) => {
       gameStateRef.current = next;
       setGameState(next);
       if (!next.enabled || !next.connected) {
         connectedNotified.current = false;
         pendingConnectionNotification.current = false;
+        connectionNotificationAttempts.current = 0;
+        if (connectionNotificationRetryTimer.current !== null) {
+          window.clearTimeout(connectionNotificationRetryTimer.current);
+          connectionNotificationRetryTimer.current = null;
+        }
         return;
       }
       pendingConnectionNotification.current = true;
-      if (notificationsReady.current && !connectedNotified.current) {
-        connectedNotified.current = true;
-        pendingConnectionNotification.current = false;
-        void sendAppNotification("已连接英雄联盟", "本地识别已就绪，选人排名与海克斯提示会自动显示。");
-      }
+      retryConnectionNotification();
     };
     const recognize = (automatic: boolean) => {
       if (automatic && autoDismissedUntilExit.current) return;
@@ -134,14 +176,10 @@ function App() {
       try {
         let permission = await getNotificationPermission();
         if (permission === "prompt") permission = await requestNotificationPermission();
-        notificationsReady.current = true;
-        if (permission === "granted") {
+        notificationsGranted.current = permission === "granted";
+        if (notificationsGranted.current) {
           await sendAppNotification("海克斯大乱斗小助手", "已在后台运行。右键系统托盘图标可打开设置或退出。");
-          if (pendingConnectionNotification.current && !connectedNotified.current) {
-            connectedNotified.current = true;
-            pendingConnectionNotification.current = false;
-            await sendAppNotification("已连接英雄联盟", "本地识别已就绪，选人排名与海克斯提示会自动显示。");
-          }
+          retryConnectionNotification();
         }
       } catch (error) {
         console.warn("初始化 Windows 通知失败", error);
@@ -155,6 +193,11 @@ function App() {
 
     return () => {
       disposed = true;
+      if (connectionNotificationRetryTimer.current !== null) {
+        window.clearTimeout(connectionNotificationRetryTimer.current);
+        connectionNotificationRetryTimer.current = null;
+      }
+      retryConnectionNotificationRef.current = () => undefined;
       unlisten.forEach((stop) => stop());
     };
   }, []);
@@ -164,10 +207,14 @@ function App() {
       <div className="brand-row"><div className="brand-mark"><Crosshair size={17} strokeWidth={2.2} /></div><div className="brand-copy"><strong>海克斯大乱斗小助手</strong><span>ARAM 对局助手</span></div></div>
       <div className="connection-card" role="status"><div className={`connection-icon ${gameState.connected ? "connected" : ""}`}>{gameState.connected ? <Wifi size={14} /> : <WifiOff size={14} />}</div><div><strong>{gameState.connected ? "客户端已连接" : gameState.enabled ? "等待客户端" : "自动识别已关闭"}</strong><span>{gameState.player_champion_name || (gameState.enabled ? "自动识别已开启" : "不扫描客户端进程")}</span></div><span className={`connection-dot ${gameState.connected ? "connected" : ""}`} /></div>
     </header>
-    <div className="page-wrap"><SettingsPage status={status} gameState={gameState} error={statusError} onImported={() => setRefreshKey((key) => key + 1)} /></div>
+    <div className="page-wrap"><SettingsPage status={status} gameState={gameState} error={statusError} onImported={() => setRefreshKey((key) => key + 1)} onNotificationPermissionGranted={() => {
+      notificationsGranted.current = true;
+      connectionNotificationAttempts.current = 0;
+      retryConnectionNotificationRef.current();
+    }} /></div>
   </main></div>;
 }
-function SettingsPage({ status, gameState, error, onImported }: { status: AppStatus | null; gameState: GameState; error: boolean; onImported: () => void }) {
+function SettingsPage({ status, gameState, error, onImported, onNotificationPermissionGranted }: { status: AppStatus | null; gameState: GameState; error: boolean; onImported: () => void; onNotificationPermissionGranted: () => void }) {
   const [importNotice, setImportNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [gameSettings, setGameSettings] = useState<GameDetectionSettings>({ enabled: true });
   const [gameSettingsLoading, setGameSettingsLoading] = useState(true);
@@ -182,7 +229,10 @@ function SettingsPage({ status, gameState, error, onImported }: { status: AppSta
 
   useEffect(() => {
     const refreshNotificationPermission = () => {
-      getNotificationPermission().then(setNotificationPermission).catch(() => setNotificationPermission("denied"));
+      getNotificationPermission().then((permission) => {
+        setNotificationPermission(permission);
+        if (permission === "granted") onNotificationPermissionGranted();
+      }).catch(() => setNotificationPermission("denied"));
     };
     getGameDetectionSettings().then(setGameSettings).catch((cause) => setGameNotice({ text: cause instanceof Error ? cause.message : String(cause), error: true })).finally(() => setGameSettingsLoading(false));
     getAiSettings().then(setAiSettings).catch((cause) => setAiNotice({ text: cause instanceof Error ? cause.message : String(cause), error: true }));
@@ -195,7 +245,10 @@ function SettingsPage({ status, gameState, error, onImported }: { status: AppSta
     const permission = await requestNotificationPermission();
     setNotificationPermission(permission);
     setNotificationNotice(permission === "granted" ? "Windows 通知已允许。" : "通知仍不可用；可在 Windows 设置中检查应用通知权限。");
-    if (permission === "granted") void sendAppNotification("海克斯大乱斗小助手", "Windows 通知已启用。");
+    if (permission === "granted") {
+      onNotificationPermissionGranted();
+      void sendAppNotification("海克斯大乱斗小助手", "Windows 通知已启用。");
+    }
   }
 
   async function toggleGameDetection() {

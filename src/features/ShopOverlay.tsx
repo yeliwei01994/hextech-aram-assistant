@@ -6,7 +6,13 @@ import { getGameState } from "../lib/tauri";
 interface EquipmentStats {
   champion: string;
   patch: string;
-  items: { id: string; name: string; games: number; winRate: number; price: number | null; components: string[] | null }[];
+  route: { patch: string; core: string[][] } | null;
+  starters: { id: string; name: string; price: number }[][];
+  items: {
+    id: string; name: string; games: number; winRate: number; price: number | null;
+    components: string[] | null;
+    componentOptions: { name: string; price: number }[];
+  }[];
 }
 
 interface ShopContext {
@@ -14,6 +20,7 @@ interface ShopContext {
   enemies: { id: string; name: string | null }[];
   owned: string[] | null;
   gold: number | null;
+  gameTime: number | null;
 }
 
 const counters = [
@@ -120,14 +127,61 @@ export default function ShopOverlay() {
     );
     return enemy && item ? [{ item, reason: `敌方有 ${enemy.name ?? enemy.id}，${rule.reason}` }] : [];
   })[0];
-  const next = sorted.find((item) => item.id !== targeted?.item.id);
+  const route = stats.route;
+  const knownItems = new Set(stats.items.map(({ id }) => id));
+  const owned = new Set(context?.owned ?? []);
+  const groups = (route?.core ?? [])
+    .map((group) => group.filter((id) => knownItems.has(id)))
+    .filter((group) => group.length >= 2);
+  const overlap = (group: string[]) => group.filter((id) => owned.has(id)).length;
+  const group = groups.sort((a, b) => overlap(b) - overlap(a))[0];
+  const core = available.find((item) => item.id === group?.find((id) => !owned.has(id)));
+  const next = core ?? sorted.find((item) => item.id !== targeted?.item.id);
+  // Utility slots can be populated before the first equipment purchase.
+  const utilityItems = new Set(["2003", "2031", "2052", "3340", "3363", "3364"]);
+  const starterIds = new Set(stats.starters.flat().map(({ id }) => id));
+  const hasGear = context?.owned?.some((id) => knownItems.has(id)
+    || stats.items.some((item) => item.components?.includes(id))
+    || starterIds.has(id) && !utilityItems.has(id));
+  const opening = context?.owned != null && !hasGear
+    && (context.gameTime != null ? context.gameTime <= 105 : (context.gold ?? 0) <= 1700);
+  const inventoryPending = context?.owned == null;
+  const starter = opening && route ? stats.starters.map((items) => {
+    const inventory = [...(context.owned ?? [])];
+    return items.filter(({ id }) => {
+      const index = inventory.indexOf(id);
+      if (index < 0) return true;
+      inventory.splice(index, 1);
+      return false;
+    });
+  }).find((items) =>
+    items.length > 0 && (context.gold == null
+      || items.reduce((sum, item) => sum + item.price, 0) <= context.gold),
+  ) : undefined;
+  const openingRoute = opening && !starter && context.gold != null ? common.flatMap((item) => {
+    if (item.price == null || item.price <= context.gold!) return [];
+    const component = item.componentOptions
+      .filter(({ price }) => price <= context.gold!)
+      .sort((a, b) => b.price - a.price)[0];
+    return component ? [{ item, component }] : [];
+  })[0] : undefined;
   return <aside className="shop-advice" aria-label="装备建议">
     <strong>{stats.champion} · 装备建议</strong>
     <small>国服 {stats.patch} · AramHex · CC BY-NC 4.0</small>
-    {next && <><small>{context?.owned ? "常规下一件" : "常见成装参考"}</small>
+    {inventoryPending && <small>等待读取背包，确认出装阶段</small>}
+    {starter && <><small>OP.GG {route?.patch} 出门装参考</small><ul><li>
+      <strong>{starter.map(({ name }) => name).join(" + ")}</strong>
+      <span>{starter.reduce((sum, item) => sum + item.price, 0)} 金 · 标价以商店为准</span>
+    </li></ul></>}
+    {openingRoute && <><small>常见成装的散件参考</small><ul><li>
+      <strong>{openingRoute.component.name} · {openingRoute.component.price} 金</strong>
+      <span>可合成 {openingRoute.item.name} · 标价以商店为准</span>
+    </li></ul></>}
+    {opening && !starter && !openingRoute && <small>暂无符合当前金币的散件建议</small>}
+    {!opening && !inventoryPending && next && <><small>{core ? `OP.GG ${route?.patch} 路线参考` : "常见成装参考"}</small>
       <ul><EquipmentRow item={next} context={context} /></ul></>}
-    {targeted && <><small>{targeted.reason}</small>
+    {!opening && !inventoryPending && targeted && targeted.item.id !== next?.id && <><small>{targeted.reason}</small>
       <ul><EquipmentRow item={targeted.item} context={context} /></ul></>}
-    {!next && !targeted && <small>暂无可推荐的成装</small>}
+    {!opening && !inventoryPending && !next && !targeted && <small>暂无可推荐的成装</small>}
   </aside>;
 }

@@ -246,6 +246,18 @@ function bounds(levels: Level[]) {
   return { min: known, max: known + levels.filter((level) => level === "unknown").length };
 }
 
+function performanceCost(rate: number, currentRate: number | null) {
+  const drop = Math.max(0, (currentRate ?? 0.5) - rate) * 100;
+  const weakness = Math.max(0, 0.49 - rate) * 100;
+  return drop + weakness;
+}
+
+function nationalWinRate(entry: GameState["ranking"]) {
+  const rate = entry?.win_rate;
+  return entry?.source?.startsWith("AramHex") && rate != null
+    && Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : null;
+}
+
 export function recommendDraftSwap(game: GameState) {
   if (game.phase !== "champ_select" || game.team.length !== 5) return null;
   const current = game.player_champion_id?.toLowerCase();
@@ -254,13 +266,17 @@ export function recommendDraftSwap(game: GameState) {
 
   const teammates = ids.filter((id) => id !== current).map(profile);
   const original = profile(current);
+  const currentRate = nationalWinRate(game.team[ids.indexOf(current)] ?? null);
   const candidates = game.bench.flatMap((entry) => {
     const id = entry?.champion_id.toLowerCase();
     if (!entry || !id || ids.includes(id)) return [];
+    const rate = nationalWinRate(entry);
+    if (rate === null) return [];
     const replacement = profile(id);
     const reasons: string[] = [];
     const retained: string[] = [];
     let score = 0;
+    let fillsCriticalGap = false;
     const poke = bounds([...teammates.map((hero) => hero.levels.poke), original.levels.poke]);
 
     for (const { ability, target, label, weight } of dimensions) {
@@ -275,6 +291,10 @@ export function recommendDraftSwap(game: GameState) {
       if (after.min >= target && before.min >= target) retained.push(label);
       if (before.max >= target || newValue.min <= oldValue.max) continue;
       if (ability === "engage" && poke.min >= 3) continue;
+      if (after.min >= target && newValue.min === 1
+        && (ability === "waveclear" || ability === "peel" && poke.min >= 3)) {
+        fillsCriticalGap = true;
+      }
       reasons.push(`补${label}`);
       score += ability === "peel" && poke.min >= 3 ? 4 : weight;
     }
@@ -294,12 +314,16 @@ export function recommendDraftSwap(game: GameState) {
       }
     }
 
-    if (!score) return [];
+    const cost = performanceCost(rate, currentRate);
+    if (cost > 1.5 && !fillsCriticalGap) return [];
+    score -= cost;
+    if (score < 1) return [];
     if (retained.includes("清线") && !reasons.includes("补清线")) reasons.push("保留清线");
     else if (retained.includes("远程消耗") && !reasons.includes("补远程消耗")) reasons.push("保留消耗");
-    return [{ entry, score, reasons: reasons.slice(0, 3) }];
+    return [{ entry, score, rate, reasons: reasons.slice(0, 3) }];
   });
 
   return candidates.sort((a, b) => b.score - a.score
+    || b.rate - a.rate
     || (a.entry.position ?? Infinity) - (b.entry.position ?? Infinity))[0] ?? null;
 }

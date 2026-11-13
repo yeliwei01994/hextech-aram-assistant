@@ -541,8 +541,14 @@ pub(crate) async fn live_shop_context() -> Option<Value> {
     let owned = player["items"].as_array().map(|items| items.iter()
         .filter_map(|item| item["itemID"].as_u64().map(|id| id.to_string()))
         .collect::<Vec<_>>());
+    let game_time = async {
+        let data: Value = client.get("https://127.0.0.1:2999/liveclientdata/gamestats")
+            .send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
+        data["gameTime"].as_f64().filter(|time| time.is_finite() && *time >= 0.0)
+    }.await;
     Some(serde_json::json!({
         "champion": champion.id, "enemies": enemies, "owned": owned,
+        "gameTime": game_time,
         "gold": active["currentGold"].as_f64().filter(|gold| gold.is_finite() && *gold >= 0.0),
     }))
 }

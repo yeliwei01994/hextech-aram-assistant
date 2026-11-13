@@ -53,10 +53,26 @@ pub fn get_equipment_stats(champion: String, state: State<'_, AppState>) -> Resu
             "holdingRate": total.map(|total| games as f64 / total as f64),
             "price": metadata[item_id]["total"].as_u64(),
             "components": components.get(item_id.as_str()),
+            "componentOptions": components.get(item_id.as_str()).into_iter().flatten()
+                .filter_map(|id| {
+                    let item = &metadata[*id];
+                    let price = item["total"].as_u64().filter(|price| *price > 0)?;
+                    Some(json!({"name": item["name"].as_str()?, "price": price}))
+                }).collect::<Vec<_>>(),
         })));
     }
     rows.sort_by_key(|(games, _)| std::cmp::Reverse(*games));
+    let routes: Value = serde_json::from_str(include_str!("../../../data/seed/build-routes.json"))
+        .map_err(|e| e.to_string())?;
+    let route = &routes[&source_id];
+    let starters: Vec<Vec<Value>> = route["starters"].as_array().into_iter().flatten()
+        .filter_map(|group| group.as_array()?.iter().map(|id| {
+            let item = &metadata[id.as_str()?];
+            let price = item["total"].as_u64().filter(|price| *price > 0)?;
+            Some(json!({"id": id, "name": item["name"].as_str()?, "price": price}))
+        }).collect()).collect();
     Ok(Some(json!({"patch": snapshot["patch"], "champion": name,
+        "route": route, "starters": starters,
         "items": rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>()})))
 }
 

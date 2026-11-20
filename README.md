@@ -2,13 +2,13 @@
 
 简体中文 Windows 桌面助手，为《英雄联盟》国服海克斯大乱斗提供选人排名、阵容参考、海克斯评级和商店出装建议。应用启动后常驻系统托盘，游戏状态读取和画面识别都在本机进行。
 
-> 当前发布：v0.1.5 免安装版。安装器暂不发布。逐条更新内容见 [更新记录](CHANGELOG.md)。
+> 当前源码版本为 v0.1.5。Windows 免安装包以 GitHub 已公开的 Release 为准。逐条更新内容见 [更新记录](CHANGELOG.md)。
 >
 > 本版适配新事件的四海克斯选卡，修复部分三卡、四卡漏检，优化商店出装建议。
 
 ## 下载与启动
 
-**[下载 v0.1.5 免安装压缩包](https://github.com/yeliwei01994/hextech-aram-assistant/releases/download/v0.1.5/HextechAramAssistant-0.1.5-portable.zip)**
+**[下载最新公开版的 Windows 免安装压缩包](https://github.com/yeliwei01994/hextech-aram-assistant/releases/latest)**
 
 1. 下载 ZIP 并完整解压到一个固定文件夹，不要直接在压缩包里运行。
 2. 双击 `aram-companion.exe`。

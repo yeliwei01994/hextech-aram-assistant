@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { OcrOverlayPayload } from "../../types/domain";
+import { findAugmentSynergies, synergySelectionEvent } from "./synergy";
 
 const initialPayload: OcrOverlayPayload = {
   champion_name: null,
@@ -12,6 +13,12 @@ const initialPayload: OcrOverlayPayload = {
 
 export default function OcrOverlay() {
   const [payload, setPayload] = useState(initialPayload);
+  const [selected, setSelected] = useState<string[]>([]);
+
+  useEffect(() => {
+    const subscription = listen<string[]>(synergySelectionEvent, (event) => setSelected(event.payload));
+    return () => { void subscription.then((stop) => stop()).catch(console.warn); };
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -26,27 +33,43 @@ export default function OcrOverlay() {
     };
   }, []);
 
+  return <OcrCardOverlayView payload={payload} manuallySelected={selected} />;
+}
+
+export function OcrCardOverlayView({ payload, manuallySelected = [] }: {
+  payload: OcrOverlayPayload;
+  manuallySelected?: readonly string[];
+}) {
+  const selected = [...(payload.selected_augments ?? []), ...manuallySelected];
   return (
-    <main className="ocr-card-overlay" aria-live="polite">
-      <div className="ocr-card-canvas">
+    <div className="ocr-card-overlay" aria-live="polite">
+      <div className={`ocr-card-canvas${payload.cards.length === 4 && payload.cards.some((card) => card.low_sample) ? " ocr-card-canvas--four-with-warning" : ""}`}>
       {payload.cards.map((card) => {
-        const confirmed = Boolean(card.matched_name && card.grade);
-        const left = `${30.8 + (card.slot - 1) * 19.25}%`;
+        const grade = card.matched_name ? card.grade : null;
+        const [synergy, ...otherSynergies] = findAugmentSynergies(card.matched_name, selected);
+        const rate = card.win_rate;
+        const left = card.center_x != null ? `${card.center_x * 100}%` : payload.cards.length === 4
+          ? `${18.5 + (card.slot - 1) * 21}%`
+          : `${30.8 + (card.slot - 1) * 19.25}%`;
         return <div key={card.slot}>
-          <div className={`ocr-card-badge ${confirmed ? `grade-${card.grade?.toLowerCase()}` : "grade-unknown"}`} style={{ left }} title={card.matched_name || card.raw_text || "未识别"}>
-            {confirmed ? card.grade : "?"}
+          <div className={`ocr-card-badge ${grade ? `grade-${grade.toLowerCase()}` : "grade-unknown"}`} style={{ left }} title={card.matched_name || card.raw_text || "未识别"}>
+            {grade ?? "?"}
           </div>
-          <section className="ocr-card-statistics" style={{ left }} aria-label={`${card.matched_name || card.raw_text || "未识别"}推荐`}>
-            <strong>{card.win_rate != null ? `胜率 ${(card.win_rate * 100).toFixed(1)}%` : "暂无可靠胜率"}
+          <section className="ocr-card-statistics" style={{ left }} aria-label={`${card.matched_name || "未识别"}推荐`}>
+            <strong>{rate != null && Number.isFinite(rate) ? `胜率 ${(rate * 100).toFixed(1)}%` : "暂无可靠胜率"}
               {card.games != null && <span> · {card.games.toLocaleString("zh-CN")} 局</span>}
             </strong>
-            <p className={card.low_sample ? "sample-warning" : ""}>{card.reason || (card.matched_name ? "暂无可靠数据" : "标题未确认，请重识别")}</p>
+            {card.low_sample && <span className="sample-warning">小样本</span>}
+            {synergy && <p className="ocr-synergy" key={JSON.stringify([card.matched_name, synergy.partners])}>
+              <b>{synergy.status === "unverified" ? "联动 · 待实测" : "联动"}{otherSynergies.length > 0 && ` · +${otherSynergies.length}`}</b>
+              <span className="ocr-synergy-partners">{synergy.partners.join("＋")}</span>
+              <span>{synergy.description}</span>
+            </p>}
           </section>
         </div>;
       })}
       {!payload.cards.length && <div className="ocr-card-notice">{payload.message}</div>}
-      {payload.cards.length > 0 && <div className="ocr-data-caption">{payload.champion_name} · {payload.message}</div>}
       </div>
-    </main>
+    </div>
   );
 }

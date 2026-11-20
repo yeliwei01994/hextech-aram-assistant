@@ -1,10 +1,11 @@
 {
   "name": "aram-companion",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "preview:synergy": "vite --open /?window=synergy-preview",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

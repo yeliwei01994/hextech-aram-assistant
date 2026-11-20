@@ -7,7 +7,7 @@ mod providers;
 mod recommendation;
 
 use rusqlite::Connection;
-use std::{fs, path::PathBuf, sync::Mutex};
+use std::{fs, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Mutex}};
 use tauri::{
     menu::{Menu, MenuItem},
     path::BaseDirectory,
@@ -16,6 +16,9 @@ use tauri::{
 };
 
 pub struct AppState {
+    selection: Mutex<ocr::selection::SelectionTracker>,
+    ocr_champion_id: Mutex<Option<String>>,
+    ocr_dismissed: AtomicBool,
     pub db: Mutex<Connection>,
     pub ocr: Mutex<ocr::OcrClient>,
 }
@@ -36,7 +39,11 @@ pub fn run() {
                     } else if key.ends_with("f7") {
                         "game:refresh"
                     } else if key.ends_with("f8") {
-                        "ocr:hide"
+                        app.state::<AppState>().ocr_dismissed.store(true, Ordering::Relaxed);
+                        if let Err(error) = commands::ocr::hide_ocr_overlay(app.clone()) {
+                            eprintln!("海克斯浮层：{error}");
+                        }
+                        return;
                     } else {
                         return;
                     };
@@ -80,6 +87,9 @@ pub fn run() {
                 .join("workers")
                 .join("ocr");
             app.manage(AppState {
+                selection: Mutex::default(),
+                ocr_champion_id: Mutex::default(),
+                ocr_dismissed: AtomicBool::default(),
                 db: Mutex::new(connection),
                 ocr: Mutex::new(ocr::OcrClient::new(
                     resource_executable,

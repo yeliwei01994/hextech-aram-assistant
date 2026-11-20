@@ -10,6 +10,7 @@ pub struct OcrScreenBounds {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OcrCardAdvice {
+    pub center_x: Option<f64>,
     pub slot: u8,
     pub raw_text: String,
     pub confidence: f32,
@@ -27,6 +28,8 @@ pub struct OcrCardAdvice {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OcrOverlayPayload {
+    #[serde(default)]
+    pub selected_augments: Vec<String>,
     pub champion_name: Option<String>,
     pub message: String,
     pub monitor: Option<OcrScreenBounds>,

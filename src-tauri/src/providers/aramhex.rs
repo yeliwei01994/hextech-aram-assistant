@@ -127,9 +127,18 @@ struct Stats {
     low_sample: bool,
 }
 #[derive(Deserialize)]
-struct Excluded {
-    name: String,
-    reason: String,
+#[serde(untagged)]
+enum Excluded {
+    Named { name: String, reason: String },
+    Reason(String),
+}
+
+impl Excluded {
+    fn reason(&self) -> &str {
+        match self {
+            Self::Named { reason, .. } | Self::Reason(reason) => reason,
+        }
+    }
 }
 #[derive(Deserialize)]
 struct Meta {
@@ -291,14 +300,17 @@ impl Dataset {
                     .meta
                     .excluded_augments
                     .get(aid)
-                    .map(|e| e.reason.as_str());
+                    .map(Excluded::reason);
                 tx.execute("INSERT INTO aramhex_augments (augment_id,name,excluded_reason) VALUES (?1,?2,?3)", params![aid,a.name,excluded])?;
             }
             // Some deliberately excluded augments have no statistics/catalog
             // row. Keep their names recognizable, with no grade or win rate.
             for (aid, excluded) in &self.meta.excluded_augments {
-                if aid != "3176" {
-                    tx.execute("INSERT OR IGNORE INTO aramhex_augments (augment_id,name,excluded_reason) VALUES (?1,?2,?3)", params![aid,excluded.name,excluded.reason])?;
+                if aid == "3176" {
+                    continue;
+                }
+                if let Excluded::Named { name, reason } = excluded {
+                    tx.execute("INSERT OR IGNORE INTO aramhex_augments (augment_id,name,excluded_reason) VALUES (?1,?2,?3)", params![aid,name,reason])?;
                 }
             }
             for (id, h) in &self.heroes {

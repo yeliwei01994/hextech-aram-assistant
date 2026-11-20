@@ -86,7 +86,7 @@ def active_game_client_rect() -> dict[str, int]:
     height = rect.bottom - rect.top
     if width < 640 or height < 480:
         raise RuntimeError("游戏窗口尺寸过小，无法识别海克斯卡片。")
-    return {"left": origin.x, "top": origin.y, "width": width, "height": height}
+    return {"left": origin.x, "top": origin.y, "width": width, "height": height, "window_handle": int(hwnd)}
 
 
 def containing_monitor(rect: dict[str, int]) -> dict[str, int]:
@@ -129,11 +129,24 @@ def reference_rect(rect: dict[str, int]) -> dict[str, int]:
             "width": width, "height": height}
 
 
+def capture_rgb(rect: dict[str, int]) -> Image.Image:
+    with mss() as capture:
+        screenshot = capture.grab(rect)
+    return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+
+def crop_region(frame: Image.Image, rect: dict[str, int], region: dict[str, int]) -> Image.Image:
+    x = region["left"] - rect["left"]
+    y = region["top"] - rect["top"]
+    return frame.crop((x, y, x + region["width"], y + region["height"]))
+
+
 def crop_title(
     rect: dict[str, int],
     card: dict[str, Any],
     title: dict[str, float],
     upscale: int,
+    frame: Image.Image,
 ) -> tuple[Image.Image, str]:
     card_x = rect["left"] + round(rect["width"] * float(card["x"]))
     card_y = rect["top"] + round(rect["height"] * float(card["y"]))
@@ -147,9 +160,7 @@ def crop_title(
     }
     if crop["width"] < 24 or crop["height"] < 16:
         raise RuntimeError("当前分辨率下标题区域太小，无法进行 OCR。")
-    with mss() as capture:
-        screenshot = capture.grab(crop)
-    image = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+    image = crop_region(frame, rect, crop)
     signature = title_signature(image)
     if upscale > 1:
         image = image.resize(
@@ -166,58 +177,135 @@ def title_signature(image: Image.Image) -> str:
     return hashlib.blake2s(mask, digest_size=8).hexdigest()
 
 
-def probe_augment_cards(rect: dict[str, int], layout: dict[str, Any]) -> list[dict[str, Any]]:
+def probe_augment_cards(rect: dict[str, int], layout: dict[str, Any], frame: Image.Image) -> list[dict[str, Any]]:
     results = []
-    with mss() as capture:
-        for card in layout["cards"]:
-            region = {
-                "left": rect["left"] + round(rect["width"] * float(card["x"])),
-                "top": rect["top"] + round(rect["height"] * float(card["y"])),
-                "width": round(rect["width"] * float(card["width"])),
-                "height": round(rect["height"] * float(card["height"])),
-            }
-            frame = capture.grab(region)
-            image = Image.frombytes("RGB", frame.size, frame.bgra, "raw", "BGRX")
-            title_left = round(image.width * float(layout["title_crop"]["x"]))
-            title_top = round(image.height * float(layout["title_crop"]["y"]))
-            title_right = title_left + round(image.width * float(layout["title_crop"]["width"]))
-            title_bottom = title_top + round(image.height * float(layout["title_crop"]["height"]))
-            signature = title_signature(image.crop((
-                title_left, title_top, title_right, title_bottom,
-            )))
-            image = image.resize((32, 48), Image.Resampling.BILINEAR)
-            pixels = image.load()
+    for card in layout["cards"]:
+        region = {
+            "left": rect["left"] + round(rect["width"] * float(card["x"])),
+            "top": rect["top"] + round(rect["height"] * float(card["y"])),
+            "width": round(rect["width"] * float(card["width"])),
+            "height": round(rect["height"] * float(card["height"])),
+        }
+        image = crop_region(frame, rect, region)
+        title_left = round(image.width * float(layout["title_crop"]["x"]))
+        title_top = round(image.height * float(layout["title_crop"]["y"]))
+        title_right = title_left + round(image.width * float(layout["title_crop"]["width"]))
+        title_bottom = title_top + round(image.height * float(layout["title_crop"]["height"]))
+        signature = title_signature(image.crop((
+            title_left, title_top, title_right, title_bottom,
+        )))
+        image = image.resize((32, 48), Image.Resampling.BILINEAR)
+        pixels = image.load()
 
-            # The card's luminous frame sits a few pixels inside its dark outer edge.
-            border_pixels = []
-            border_pixels.extend(pixels[x, y] for y in range(0, 2) for x in range(7, 25))
-            border_pixels.extend(pixels[x, y] for y in range(46, 48) for x in range(7, 25))
-            border_pixels.extend(pixels[x, y] for x in range(0, 2) for y in range(8, 40))
-            border_pixels.extend(pixels[x, y] for x in range(30, 32) for y in range(8, 40))
-            bright_border_ratio = sum(
-                min(red, green, blue) > 130 and (red + green + blue) / 3 > 165
-                for red, green, blue in border_pixels
-            ) / len(border_pixels)
+        # The card's luminous frame sits a few pixels inside its dark outer edge.
+        border_pixels = []
+        border_pixels.extend(pixels[x, y] for y in range(0, 2) for x in range(7, 25))
+        border_pixels.extend(pixels[x, y] for y in range(46, 48) for x in range(7, 25))
+        border_pixels.extend(pixels[x, y] for x in range(0, 2) for y in range(8, 40))
+        border_pixels.extend(pixels[x, y] for x in range(30, 32) for y in range(8, 40))
+        bright_border_ratio = sum(
+            min(red, green, blue) > 130 and (red + green + blue) / 3 > 165
+            for red, green, blue in border_pixels
+        ) / len(border_pixels)
 
-            center_pixels = [
-                pixels[x, y]
-                for y in range(7, 42)
-                for x in range(5, 27)
-            ]
-            dark_center_ratio = sum(
-                max(red, green, blue) < 105 for red, green, blue in center_pixels
-            ) / len(center_pixels)
-            results.append({
-                "slot": int(card["slot"]),
-                "signature": signature,
-                "bright_border_ratio": round(bright_border_ratio, 3),
-                "dark_center_ratio": round(dark_center_ratio, 3),
-                "matched": (
-                    bright_border_ratio >= MIN_BRIGHT_BORDER_RATIO
-                    and dark_center_ratio >= MIN_DARK_CENTER_RATIO
-                ),
-            })
+        center_pixels = [
+            pixels[x, y]
+            for y in range(7, 42)
+            for x in range(5, 27)
+        ]
+        dark_center_ratio = sum(
+            max(red, green, blue) < 105 for red, green, blue in center_pixels
+        ) / len(center_pixels)
+        results.append({
+            "slot": int(card["slot"]),
+            "signature": signature,
+            "bright_border_ratio": round(bright_border_ratio, 3),
+            "dark_center_ratio": round(dark_center_ratio, 3),
+            "matched": (
+                bright_border_ratio >= MIN_BRIGHT_BORDER_RATIO
+                and dark_center_ratio >= MIN_DARK_CENTER_RATIO
+            ),
+        })
     return results
+
+
+def locate_card_row(image: Image.Image, count: int) -> list[dict[str, Any]]:
+    import cv2
+    import numpy as np
+
+    frame = np.asarray(image)
+    width = 960
+    height = round(width * image.height / image.width)
+    frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+    # Saturated frames can have a low red or green channel even when
+    # their outline is bright. Find outlines by channel intensity, then
+    # validate the card geometry and dark interiors for the complete row.
+    intensity = frame.max(axis=2)
+    # The silver three-card frame can fade below 120 near its lower edge.
+    thresholds = (150, 120, 105) if count == 3 else (150, 120)
+    for minimum in thresholds:
+        mask = cv2.inRange(intensity, minimum, 255)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        if cards := find_card_row(frame, mask, count):
+            return cards
+    return []
+
+
+def find_card_row(frame, mask, count):
+    import cv2
+    import numpy as np
+    from itertools import combinations
+
+    height, width = frame.shape[:2]
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    candidates = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if not (.12 <= w / width <= .24 and .34 <= h / height <= .66
+                and .08 <= y / height <= .37 and cv2.contourArea(contour) >= w * h * .55):
+            continue
+        center = frame[y+h//5:y+4*h//5, x+w//5:x+4*w//5, :3]
+        if np.mean(np.max(center, axis=2) < 105) >= .45:
+            candidates.append((x, y, w, h))
+    if not count <= len(candidates) <= 12:
+        return []
+    for group in combinations(sorted(candidates), count):
+        xs, ys, ws, hs = zip(*group)
+        steps = [b - a for a, b in zip(xs, xs[1:])]
+        if (max(ys) - min(ys) > height * .035 or max(hs) - min(hs) > height * .08
+                or max(ws) - min(ws) > width * .045 or min(steps) < width * .15
+                or max(steps) - min(steps) > width * .035
+                or (count == 3 and abs((xs[0] + xs[-1] + ws[-1]) / 2 - width / 2) > width * .05)
+                or any(x + w > right for x, w, right in zip(xs, ws, xs[1:]))):
+            continue
+        return [{"slot": slot, "x": x / width, "y": y / height,
+                 "width": w / width, "height": h / height}
+                for slot, (x, y, w, h) in enumerate(group, 1)]
+    return []
+
+
+def detect_augment_layout(rect: dict[str, int], layout: dict[str, Any], frame: Image.Image):
+    three = probe_augment_cards(rect, layout, frame)
+    four_cards = layout.get("four_cards")
+    if four_cards:
+        four_layout = {**layout, "cards": four_cards}
+        four = probe_augment_cards(rect, four_layout, frame)
+        four_matches = sum(card["matched"] for card in four)
+        three_matches = sum(card["matched"] for card in three)
+        fixed_four_matches = four_matches == 4 or (four_matches >= 3 and four_matches > three_matches)
+        if (fixed_four_matches or three_matches < 2) and (located := locate_card_row(frame, 4)):
+            located_layout = {**layout, "cards": located}
+            metrics = probe_augment_cards(rect, located_layout, frame)
+            # The full row passed the geometry and interior checks. Keep the
+            # title signatures, even if the fixed edge samples miss the frame.
+            return located_layout, [{**card, "matched": True} for card in metrics]
+        if fixed_four_matches:
+            return four_layout, four
+    if sum(card["matched"] for card in three) < 2 and (located := locate_card_row(frame, 3)):
+        located_layout = {**layout, "cards": located}
+        metrics = probe_augment_cards(rect, located_layout, frame)
+        return located_layout, [{**card, "matched": True} for card in metrics]
+    return layout, three
 
 
 def create_engine() -> Any:
@@ -341,11 +429,89 @@ def shop_is_visible(rect: dict[str, int]) -> bool:
     return False
 
 
+def augment_tooltip(frame: Image.Image):
+    import cv2
+    import numpy as np
+
+    top = round(frame.height * .69)
+    band = np.asarray(frame.crop((0, top, frame.width, round(frame.height * .88))))
+    dark = cv2.inRange(band, (0, 0, 0), (21, 23, 27))
+    contours, _ = cv2.findContours(dark, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+        x, y, width, height = cv2.boundingRect(contour)
+        if not (.20 < x / frame.width < .65 and .22 < width / frame.width < .55
+                and 1 < y < frame.height * .10 and height > frame.height * .09
+                and cv2.contourArea(contour) > width * height * .9):
+            continue
+        y += top
+        unit = frame.height / 2029
+        def crop(left, upper, right, lower):
+            return frame.crop(tuple(round(value) for value in (
+                x + left * unit, y + upper * unit, x + right * unit, y + lower * unit,
+            )))
+        return crop(26, 24, 113, 113), crop(130, 8, 690, 76)
+    return None
+
+
+def hud_icon_score(frame: Image.Image, icon: Image.Image) -> float:
+    import cv2
+    import numpy as np
+
+    hud = np.asarray(frame.crop((
+        round(frame.width * .21), round(frame.height * .87),
+        round(frame.width * .39), frame.height,
+    )))
+    template = np.asarray(icon)
+    # Normalize the comparison to the captured tooltip icon size. HUD and
+    # tooltip icons can have different UI scales.
+    scores = []
+    for scale in (.62, .70, .78, .86, .94, 1.02):
+        size = max(8, round(icon.width * scale))
+        if size <= min(hud.shape[:2]):
+            resized = cv2.resize(template, (size, size), interpolation=cv2.INTER_AREA)
+            scores.append(float(cv2.matchTemplate(hud, resized, cv2.TM_CCOEFF_NORMED).max()))
+    return max(scores, default=0.0)
+
+
+class HudSelection:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.window = None
+        self.tooltip = None
+        self.misses = 0
+        self.hits = 0
+
+    def observe(self, window, frame, choice, engine):
+        if self.window != window:
+            self.reset()
+            self.window = window
+        if choice:
+            if self.misses >= 3:
+                self.tooltip = None
+            self.misses = self.hits = 0
+            if tooltip := augment_tooltip(frame):
+                self.tooltip = tooltip
+            return None
+        self.misses += 1
+        if self.tooltip is None or self.misses > 3 or engine is None:
+            return None
+        icon, title = self.tooltip
+        self.hits = self.hits + 1 if hud_icon_score(frame, icon) >= .80 else 0
+        if self.misses != 3 or self.hits < 2:
+            return None
+        self.tooltip = None
+        [(name, confidence)] = recognize_cards(engine, [title])
+        return name if confidence >= .85 else None
+
+
 def process_request(
     request: dict[str, Any],
     layout: dict[str, Any],
     engine_holder: list[Any],
     card_cache: dict[int, tuple[str, str, float]],
+    hud_selection=None,
 ) -> dict[str, Any]:
     action = request.get("action")
     if action == "warmup":
@@ -366,9 +532,12 @@ def process_request(
         try:
             started = time.perf_counter()
             rect = active_game_client_rect()
+            window = rect.pop("window_handle", None)
             shop_visible = shop_is_visible(rect)
-            cards = [] if shop_visible else probe_augment_cards(reference_rect(rect), layout)
-            required_cards = max(2, len(layout["cards"]) - 1)
+            reference = reference_rect(rect)
+            frame = None if shop_visible else capture_rgb(reference)
+            detected_layout, cards = (layout, []) if frame is None else detect_augment_layout(reference, layout, frame)
+            required_cards = max(2, len(detected_layout["cards"]) - 1)
             response = {
                 "game_foreground": True,
                 "augment_choice": sum(card["matched"] for card in cards) >= required_cards,
@@ -376,20 +545,34 @@ def process_request(
                 "shop_visible": shop_visible,
                 "game_window": rect,
             }
+            if hud_selection is not None:
+                if frame is None:
+                    hud_selection.reset()
+                else:
+                    response["hud_selected_name"] = hud_selection.observe(window, frame, response["augment_choice"], engine_holder[0])
             elapsed = (time.perf_counter() - started) * 1000
             if elapsed >= 100:
                 print(f"海克斯画面探测：{elapsed:.0f} ms", file=sys.stderr, flush=True)
             return response
         except RuntimeError:
+            if hud_selection is not None:
+                hud_selection.reset()
             return {"game_foreground": False, "augment_choice": False}
 
-    if action != "recognize_current_screen":
+    if action not in ("recognize_current_screen", "recognize_augment_choice"):
         raise RuntimeError("不支持的 OCR 请求。")
     if request.get("language") != "ch":
         raise RuntimeError("OCR worker 只接受简体中文配置。")
 
     rect = active_game_client_rect()
+    window_handle = rect.pop("window_handle", None)
     monitor = containing_monitor(rect)
+    reference = reference_rect(rect)
+    frame = capture_rgb(reference)
+    layout, metrics = detect_augment_layout(reference, layout, frame)
+    choice = sum(card["matched"] for card in metrics) >= max(2, len(layout["cards"]) - 1)
+    if action == "recognize_augment_choice" and not choice:
+        return {"augment_choice": False}
     if engine_holder[0] is None:
         with contextlib.redirect_stdout(sys.stderr):
             engine_holder[0] = create_engine()
@@ -402,7 +585,8 @@ def process_request(
     upscale = int(layout.get("upscale", 3))
     for card in layout["cards"]:
         slot = int(card["slot"])
-        image, signature = crop_title(reference_rect(rect), card, layout["title_crop"], 1)
+        image, signature = crop_title(reference, card, layout["title_crop"], 1, frame)
+        signature = f'{len(layout["cards"])}:{signature}'
         cached = card_cache.get(slot)
         if cached is not None and cached[0] == signature:
             predictions_by_slot[slot] = (cached[1], cached[2])
@@ -427,15 +611,18 @@ def process_request(
     for card in layout["cards"]:
         raw_text, confidence = predictions_by_slot.get(int(card["slot"]), ("", 0.0))
         cards.append(
-            {"slot": int(card["slot"]), "raw_text": raw_text, "confidence": confidence}
+            {"slot": int(card["slot"]), "raw_text": raw_text, "confidence": confidence,
+             "center_x": card["x"] + card["width"] / 2}
         )
     elapsed = (time.perf_counter() - started) * 1000
-    print(f"海克斯 OCR 更新 {len(changed_crops)}/3 张卡片：{elapsed:.0f} ms", file=sys.stderr, flush=True)
+    print(f"海克斯 OCR 更新 {len(changed_crops)}/{len(cards)} 张卡片：{elapsed:.0f} ms", file=sys.stderr, flush=True)
     return {
+        "augment_choice": choice,
         "screen_width": rect["width"],
         "screen_height": rect["height"],
         "monitor": monitor,
         "game_window": rect,
+        "game_window_handle": window_handle,
         "cards": cards,
     }
 
@@ -448,10 +635,11 @@ def main() -> None:
     layout = json.loads(Path(args.layout).read_text(encoding="utf-8"))
     engine_holder: list[Any] = [None]
     card_cache: dict[int, tuple[str, str, float]] = {}
+    hud_selection = None if getattr(sys, "frozen", False) else HudSelection()
     for line in sys.stdin:
         try:
             request = json.loads(line)
-            response = process_request(request, layout, engine_holder, card_cache)
+            response = process_request(request, layout, engine_holder, card_cache, hud_selection)
         except Exception as error:  # The JSON-lines process must survive one bad capture.
             response = {"error": str(error)}
         print(json.dumps(response, ensure_ascii=True), flush=True)

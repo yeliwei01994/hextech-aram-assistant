@@ -21,25 +21,24 @@ pub async fn recognize_current_screen(
     result
 }
 
-fn recognize_impl(
+pub(crate) fn recognize_impl(
     app: &AppHandle,
     champion_id: Option<String>,
     only_if_augment_choice: bool,
 ) -> Result<Option<OcrOverlayPayload>, String> {
     let state = app.state::<AppState>();
+    let foreground_window = crate::ocr::selection::input::foreground_window();
+    let capture_started = Instant::now();
     let screen = {
         let mut ocr = state
             .ocr
             .lock()
             .map_err(|_| "OCR 识别器暂不可用，请重启应用。".to_string())?;
         let started = Instant::now();
-        let screen = ocr.recognize_current_screen()?;
-        if only_if_augment_choice {
-            let probe = ocr.probe_current_screen()?;
-            if !probe.game_foreground || !probe.augment_choice {
-                eprintln!("海克斯识别：识别完成后卡片界面已离开");
-                return Ok(None);
-            }
+        let screen = ocr.recognize_current_screen(only_if_augment_choice)?;
+        if only_if_augment_choice && screen.augment_choice != Some(true) {
+            eprintln!("海克斯识别：本次截图未确认选卡界面，等待重试");
+            return Ok(None);
         }
         eprintln!("海克斯识别：截图、OCR 与界面校验耗时 {} ms", started.elapsed().as_millis());
         screen
@@ -60,6 +59,16 @@ fn recognize_impl(
     };
 
     let cards = make_advice_cards(&screen, &grade_rows);
+    let selected_augments = state.selection.lock().map(|mut selection| {
+        if cfg!(debug_assertions) && only_if_augment_choice {
+            if let Some(bounds) = &screen.game_window {
+                selection.arm(bounds.clone(), cards.clone(), capture_started, screen.game_window_handle.unwrap_or(foreground_window));
+            } else {
+                eprintln!("海克斯联动：识别结果缺少游戏窗口坐标");
+            }
+        }
+        selection.selected().to_vec()
+    }).unwrap_or_default();
     eprintln!("海克斯识别：英雄={}，读到 {} 张卡片，匹配到 {} 个等级", champion_name.as_deref().unwrap_or("未知"), cards.len(), cards.iter().filter(|card| card.grade.is_some()).count());
     let message = if champion_name.is_none() {
         "已读取卡片。选择当前英雄后可显示对应的 S / A / B 分级。".to_string()
@@ -73,6 +82,7 @@ fn recognize_impl(
     };
 
     Ok(Some(OcrOverlayPayload {
+        selected_augments,
         champion_name,
         message,
         monitor: screen.monitor,
@@ -106,6 +116,7 @@ fn make_advice_cards(screen: &OcrScreenResult, grades: &[AugmentGradeRow]) -> Ve
                 .as_deref()
                 .and_then(|name| grades.iter().find(|row| row.name == name));
             OcrCardAdvice {
+                center_x: card.center_x,
                 slot: card.slot,
                 raw_text: card.raw_text.clone(),
                 confidence: if card.confidence.is_finite() {

@@ -1,6 +1,7 @@
 mod monitor;
 mod normalize;
 mod protocol;
+pub(crate) mod selection;
 
 use protocol::{OcrProbeResponse, OcrWorkerRequest, OcrWorkerResponse};
 use std::{
@@ -54,11 +55,11 @@ impl OcrClient {
         }
     }
 
-    pub fn recognize_current_screen(&mut self) -> Result<OcrScreenResult, String> {
+    pub fn recognize_current_screen(&mut self, only_if_augment_choice: bool) -> Result<OcrScreenResult, String> {
         self.ensure_worker()?;
         self.last_activity = Some(Instant::now());
         let request = serde_json::to_string(&OcrWorkerRequest {
-            action: "recognize_current_screen".to_string(),
+            action: if only_if_augment_choice { "recognize_augment_choice" } else { "recognize_current_screen" }.to_string(),
             language: "ch".to_string(),
         })
         .map_err(|error| format!("准备 OCR 请求失败：{error}"))?;
@@ -98,6 +99,8 @@ impl OcrClient {
             return Err(error);
         }
         Ok(OcrScreenResult {
+            game_window_handle: response.game_window_handle,
+            augment_choice: response.augment_choice,
             screen_width: response.screen_width,
             screen_height: response.screen_height,
             monitor: response.monitor,
@@ -121,6 +124,7 @@ impl OcrClient {
             return Err(error);
         }
         Ok(OcrProbeResult {
+            hud_selected_name: response.hud_selected_name,
             shop_visible: response.shop_visible,
             game_foreground: response.game_foreground,
             augment_choice: response.augment_choice,

@@ -113,6 +113,9 @@ pub fn start_game_state_monitor(app: AppHandle) {
             match read_game_state(&state).await {
                 Ok(current) => {
                     if previous.as_ref() != Some(&current) {
+                        if let Ok(mut champion) = state.ocr_champion_id.lock() {
+                            *champion = current.player_champion_id.clone();
+                        }
                         previous = Some(current.clone());
                         let _ = app.emit_to("main", "game:state", current.clone());
                     }

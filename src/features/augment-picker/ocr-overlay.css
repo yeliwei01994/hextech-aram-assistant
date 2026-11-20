@@ -12,19 +12,16 @@
 }
 
 .ocr-card-overlay { position: relative; width: 100%; height: 100%; pointer-events: none; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
-.shop-advice { position: absolute; left: 68%; top: 12%; width: min(28%, 360px); box-sizing: border-box; padding: 12px; border: 1px solid #617d9b; border-radius: 8px; background: #101923f5; color: #eef5ff; font: clamp(11px, 1vw, 18px) "Microsoft YaHei UI", sans-serif; pointer-events: none; }
-.shop-advice small, .shop-advice li span { display: block; color: #c4cfdf; }
-.shop-advice ol { margin: 8px 0 0; padding-left: 1.5em; }
-.shop-advice li { margin-top: .4em; }
+.shop-advice { position: absolute; left: 68%; top: 12%; width: min(30%, 420px); box-sizing: border-box; padding: 12px 14px; border: 1px solid #4b839f; border-left: 3px solid #66d5f4; border-radius: 8px; background: #0c1722fa; color: #f4f8ff; font: clamp(12px, 1vw, 18px)/1.4 "Microsoft YaHei UI", sans-serif; pointer-events: none; box-shadow: 0 6px 20px #0007; }
+.shop-advice-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; color: #a5eaff; }
+.shop-advice small, .shop-advice li span { display: block; color: #bdcddd; }
+.shop-advice-heading small { margin-left: auto; }
+.shop-advice ul { list-style: none; padding: 0; margin: 3px 0 9px; }
+.shop-advice li strong { display: block; font-size: 1.3em; line-height: 1.2; }
+.shop-advice li .shop-purchase-note { color: #93e5ff; }
+.shop-advice footer { border-top: 1px solid #ffffff20; padding-top: 5px; }
 .ocr-card-canvas { position: absolute; left: 50%; top: 50%; width: min(100%, 177.7778vh); aspect-ratio: 16 / 9; transform: translate(-50%, -50%); }
-.ocr-card-badge { position: absolute; top: 19%; transform: translateX(-50%); display: grid; place-items: center; width: clamp(32px, 3vw, 70px); height: clamp(36px, 3.5vw, 80px); clip-path: polygon(0 0,100% 0,100% 78%,50% 100%,0 78%); color: white; font-size: clamp(20px, 2vw, 46px); font-weight: 800; text-shadow: 0 2px 5px #000a; filter: drop-shadow(0 4px 7px #0008); }
 .ocr-card-notice { position: absolute; left: 50%; top: 15%; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px; background: #182233ee; color: #fff; font-size: 14px; }
-.ocr-card-statistics { position: absolute; bottom: 83.5%; transform: translateX(-50%); width: 16.8%; max-height: 15%; overflow: hidden; box-sizing: border-box; padding: .6% .7%; border: 1px solid #8da5ce55; border-radius: 8px; background: #101923ef; color: #edf3ff; text-shadow: 0 1px 2px #000; font-size: clamp(11px, 1.05vw, 24px); line-height: 1.45; }
-.ocr-card-statistics strong { display: block; font-weight: 650; }
-.ocr-card-statistics strong span { color: #c4cfdf; font-size: .86em; font-weight: 400; }
-.ocr-card-statistics p { margin: .25em 0 0; font-size: .85em; color: #c5d1e2; overflow-wrap: anywhere; }
-.ocr-card-statistics .sample-warning { color: #f2cc8f; }
-.ocr-data-caption { position: absolute; left: 50%; top: 77%; transform: translateX(-50%); max-width: 85%; padding: .3% .7%; border-radius: 5px; background: #101923db; color: #d2dcea; font-size: clamp(10px, .8vw, 18px); text-align: center; }
 
 .ocr-overlay-root {
   width: 100%;
@@ -81,3 +78,84 @@
 .ocr-overlay-hotkeys { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 3px; margin-left: auto; color: #8290a3; }
 .ocr-overlay-hotkeys kbd { min-width: 13px; padding: 1px 3px; color: #aeb9ca; border: 1px solid rgba(168, 185, 211, .15); border-radius: 3px; background: rgba(255, 255, 255, .035); font: inherit; text-align: center; }
 .ocr-overlay-hotkeys i { margin: 0 3px; color: #586475; font-style: normal; }
+.ocr-card-badge { position: absolute; top: 19%; transform: translateX(-50%); display: grid; place-items: center; width: clamp(32px, 3vw, 70px); height: clamp(36px, 3.5vw, 80px); clip-path: polygon(0 0,100% 0,100% 78%,50% 100%,0 78%); color: white; font-size: clamp(20px, 2vw, 46px); font-weight: 800; text-shadow: 0 2px 5px #000a; filter: drop-shadow(0 4px 7px #0008); }
+
+.ocr-card-statistics {
+  position: absolute;
+  bottom: 83.5%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 17%;
+  box-sizing: border-box;
+  padding: .28em .65em;
+  border: 1px solid #90abcd55;
+  border-radius: 6px;
+  background: #0e1925f2;
+  box-shadow: 0 2px 8px #0005;
+  color: #eff5ff;
+  font-size: clamp(11px, .92vw, 22px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: center;
+}
+.ocr-card-statistics strong { font-weight: 700; }
+.ocr-card-statistics strong span { color: #b8c8db; font-size: .86em; font-weight: 500; }
+.ocr-card-statistics .sample-warning { display: table; margin: .25em auto 0; padding: .08em .45em; border-radius: 4px; background: #f2cc8f22; color: #f2cc8f; font-size: .8em; white-space: nowrap; }
+.ocr-card-canvas--four-with-warning .ocr-card-statistics { min-height: calc(3.15em + 2px); }
+.ocr-card-statistics:has(.ocr-synergy) {
+  border-color: #e4bf7b;
+  box-shadow: 0 0 .9em #a572f080, 0 2px 8px #0005;
+}
+.ocr-card-statistics .ocr-synergy {
+  display: grid;
+  gap: .13em;
+  margin: .3em 0 0;
+  padding: .3em .4em;
+  border: 1px solid #d1a8ff;
+  border-radius: 4px;
+  background: #392656;
+  color: #fff1cc;
+  font-size: .85em;
+  animation: ocr-synergy-flash .65s ease-out;
+}
+.ocr-synergy b { color: #ffe0a4; }
+.ocr-synergy-partners { color: #f1deff; font-weight: 650; }
+@keyframes ocr-synergy-flash {
+  from { background-color: #794d9b; }
+  to { background-color: #392656; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ocr-card-statistics .ocr-synergy { animation: none; }
+}
+
+.synergy-preview { max-width: 1100px; margin: auto; padding: 24px; }
+.synergy-preview h1 { margin: 0; }
+.synergy-preview-controls { display: flex; gap: 12px; align-items: center; }
+.synergy-preview-controls select,
+.synergy-preview-controls button {
+  padding: 6px 10px;
+  border: 1px solid #627491;
+  border-radius: 6px;
+  background: #1b2638;
+  color: #eff5ff;
+}
+.synergy-preview-stage { position: relative; aspect-ratio: 16 / 9; min-height: 320px; border-radius: 12px; background: #101a29; }
+.synergy-preview-stage .ocr-card-canvas { width: 100%; height: 100%; }
+.synergy-preview-stage .ocr-card-statistics { max-width: 19%; }
+.synergy-preview-card {
+  position: absolute;
+  top: 18%;
+  width: 17%;
+  height: 49%;
+  transform: translateX(-50%);
+  border: 1px solid #76689c;
+  border-radius: 9px;
+  background: linear-gradient(#29233c, #151725);
+  color: #f9ecdc;
+  font: inherit;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.synergy-preview-card:hover:enabled { border-color: #e4bf7b; }
+.synergy-preview-stage .ocr-card-overlay { z-index: 1; }

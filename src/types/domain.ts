@@ -43,6 +43,7 @@ export interface OcrScreenBounds {
 }
 
 export interface OcrCardAdvice {
+  center_x?: number | null;
   slot: number;
   raw_text: string;
   confidence: number;
@@ -56,6 +57,7 @@ export interface OcrCardAdvice {
 }
 
 export interface OcrOverlayPayload {
+  selected_augments?: string[];
   champion_name: string | null;
   message: string;
   monitor: OcrScreenBounds | null;

@@ -5,5 +5,11 @@
     { "slot": 3, "x": 0.609, "y": 0.177, "width": 0.168, "height": 0.491 }
   ],
   "title_crop": { "x": 0.10, "y": 0.455, "width": 0.80, "height": 0.055 },
-  "upscale": 3
+  "upscale": 3,
+  "four_cards": [
+    { "slot": 1, "x": 0.095, "y": 0.177, "width": 0.180, "height": 0.491 },
+    { "slot": 2, "x": 0.305, "y": 0.177, "width": 0.180, "height": 0.491 },
+    { "slot": 3, "x": 0.515, "y": 0.177, "width": 0.180, "height": 0.491 },
+    { "slot": 4, "x": 0.725, "y": 0.177, "width": 0.180, "height": 0.491 }
+  ]
 }

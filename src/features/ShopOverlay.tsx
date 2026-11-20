@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ShoppingBag } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getGameState } from "../lib/tauri";
@@ -44,8 +45,8 @@ function purchaseNote(item: Equipment, context: ShopContext | null) {
 function EquipmentRow({ item, context }: { item: Equipment; context: ShopContext | null }) {
   return <li>
     <strong>{item.name}</strong>
-    <span>持有胜率 {(item.winRate * 100).toFixed(1)}% · {item.games.toLocaleString("zh-CN")} 局</span>
-    <span>{purchaseNote(item, context)}</span>
+    <span className="shop-purchase-note">{purchaseNote(item, context)}</span>
+    <small>持有胜率 {(item.winRate * 100).toFixed(1)}% · {item.games.toLocaleString("zh-CN")} 局</small>
   </li>;
 }
 
@@ -166,8 +167,9 @@ export default function ShopOverlay() {
     return component ? [{ item, component }] : [];
   })[0] : undefined;
   return <aside className="shop-advice" aria-label="装备建议">
-    <strong>{stats.champion} · 装备建议</strong>
-    <small>国服 {stats.patch} · AramHex · CC BY-NC 4.0</small>
+    <header className="shop-advice-heading"><ShoppingBag size={19} aria-hidden="true" />
+      <strong>装备建议</strong><small>{stats.champion}</small>
+    </header>
     {inventoryPending && <small>等待读取背包，确认出装阶段</small>}
     {starter && <><small>OP.GG {route?.patch} 出门装参考</small><ul><li>
       <strong>{starter.map(({ name }) => name).join(" + ")}</strong>
@@ -183,5 +185,6 @@ export default function ShopOverlay() {
     {!opening && !inventoryPending && targeted && targeted.item.id !== next?.id && <><small>{targeted.reason}</small>
       <ul><EquipmentRow item={targeted.item} context={context} /></ul></>}
     {!opening && !inventoryPending && !next && !targeted && <small>暂无可推荐的成装</small>}
+    <footer><small>国服 {stats.patch} · AramHex · CC BY-NC 4.0</small></footer>
   </aside>;
 }

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import ChampionRankOverlay from "./features/ChampionRankOverlay";
 import OcrOverlay from "./features/augment-picker/OcrOverlay";
+import SynergyPreview from "./features/augment-picker/SynergyPreview";
 import ShopOverlay from "./features/ShopOverlay";
 import "./styles/tokens.css";
 import "./features/champion-rank-overlay.css";
@@ -11,6 +12,7 @@ import "./features/augment-picker/ocr-overlay.css";
 const isOcrOverlay = new URLSearchParams(window.location.search).get("window") === "ocr-overlay";
 const isChampionRankOverlay = new URLSearchParams(window.location.search).get("window") === "champion-rank-overlay";
 const isShopOverlay = new URLSearchParams(window.location.search).get("window") === "shop-overlay";
+const isSynergyPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get("window") === "synergy-preview";
 if (isOcrOverlay || isShopOverlay) {
   document.documentElement.classList.add("ocr-overlay-html");
   document.body.classList.add("ocr-overlay-body");
@@ -22,6 +24,6 @@ if (isChampionRankOverlay) {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isShopOverlay ? <ShopOverlay /> : isOcrOverlay ? <OcrOverlay /> : isChampionRankOverlay ? <ChampionRankOverlay /> : <App />}
+    {isSynergyPreview ? <SynergyPreview /> : isShopOverlay ? <ShopOverlay /> : isOcrOverlay ? <OcrOverlay /> : isChampionRankOverlay ? <ChampionRankOverlay /> : <App />}
   </React.StrictMode>,
 );

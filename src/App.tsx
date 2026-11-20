@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { synergyCards, synergySelectionEvent } from "./features/augment-picker/synergy";
 import {
   ArrowDownToLine,
   CircleHelp,
@@ -10,7 +11,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { getAiSettings, getAppStatus, getGameDetectionSettings, getGameState, hideOcrOverlay, importAugmentGradesJson, importRankingsJson, recognizeCurrentScreen, saveAiSettings, saveGameDetectionSettings, showOcrOverlay } from "./lib/tauri";
+import { getAiSettings, getAppStatus, getGameDetectionSettings, getGameState, importAugmentGradesJson, importRankingsJson, recognizeCurrentScreen, saveAiSettings, saveGameDetectionSettings, showOcrOverlay } from "./lib/tauri";
 import { getNotificationPermission, requestNotificationPermission, sendAppNotification } from "./lib/notifications";
 import type { AiSettingsView, AppStatus, GameDetectionSettings, GameState } from "./types/domain";
 
@@ -40,9 +41,6 @@ function App() {
   const connectionNotificationRetryTimer = useRef<number | null>(null);
   const retryConnectionNotificationRef = useRef<() => void>(() => undefined);
   const ocrBusy = useRef(false);
-  const pendingAutoRecognition = useRef(false);
-  const autoDetectionActive = useRef(false);
-  const autoDismissedUntilExit = useRef(false);
   gameStateRef.current = gameState;
 
   useEffect(() => {
@@ -112,21 +110,16 @@ function App() {
       pendingConnectionNotification.current = true;
       retryConnectionNotification();
     };
-    const recognize = (automatic: boolean) => {
-      if (automatic && autoDismissedUntilExit.current) return;
-      if (ocrBusy.current) {
-        if (automatic) pendingAutoRecognition.current = true;
-        return;
-      }
+    const recognize = () => {
+      if (ocrBusy.current) return;
       ocrBusy.current = true;
       void (async () => {
         const championId = gameStateRef.current.player_champion_id;
         try {
-          const payload = await recognizeCurrentScreen(championId, automatic);
-          if (!payload || (automatic && (!autoDetectionActive.current || autoDismissedUntilExit.current))) return;
+          const payload = await recognizeCurrentScreen(championId, false);
+          if (!payload) return;
           await showOcrOverlay(payload);
         } catch (cause) {
-          if (automatic) return;
           await showOcrOverlay({
             champion_name: gameStateRef.current.player_champion_name || null,
             message: cause instanceof Error ? cause.message : String(cause),
@@ -136,40 +129,18 @@ function App() {
           }).catch(() => undefined);
         } finally {
           ocrBusy.current = false;
-          if (pendingAutoRecognition.current) {
-            pendingAutoRecognition.current = false;
-            if (autoDetectionActive.current && !autoDismissedUntilExit.current) {
-              window.setTimeout(() => recognize(true), 0);
-            }
-          }
         }
       })();
     };
 
     register<GameState>("game:state", applyGameState);
-    register("ocr:request", () => recognize(false));
-    register("ocr:auto-request", () => {
-      autoDetectionActive.current = true;
-      recognize(true);
-    });
+    register("ocr:request", recognize);
     register("game:refresh", () => {
       void getGameState().then(applyGameState).catch(() => undefined);
     });
     register("rankings:updated", () => {
       setRefreshKey((current) => current + 1);
       void getGameState().then(applyGameState).catch(() => undefined);
-      if (autoDetectionActive.current && !autoDismissedUntilExit.current) recognize(true);
-    });
-    register("ocr:hide", () => {
-      if (autoDetectionActive.current) autoDismissedUntilExit.current = true;
-      pendingAutoRecognition.current = false;
-      void hideOcrOverlay().catch(() => undefined);
-    });
-    register("ocr:auto-hide", () => {
-      autoDetectionActive.current = false;
-      autoDismissedUntilExit.current = false;
-      pendingAutoRecognition.current = false;
-      void hideOcrOverlay().catch(() => undefined);
     });
 
     void (async () => {
@@ -215,6 +186,15 @@ function App() {
   </main></div>;
 }
 function SettingsPage({ status, gameState, error, onImported, onNotificationPermissionGranted }: { status: AppStatus | null; gameState: GameState; error: boolean; onImported: () => void; onNotificationPermissionGranted: () => void }) {
+  const [selectedAugments, setSelectedAugments] = useState<string[]>([]);
+  const canMarkAugments = import.meta.env.DEV && gameState.enabled && gameState.phase === "in_game";
+  useEffect(() => {
+    if (!canMarkAugments) setSelectedAugments([]);
+    if ("__TAURI_INTERNALS__" in window) {
+      void emitTo("ocr-overlay", synergySelectionEvent, canMarkAugments ? selectedAugments : [])
+        .catch((error) => console.warn("同步已选海克斯失败", error));
+    }
+  }, [canMarkAugments, selectedAugments]);
   const [importNotice, setImportNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [gameSettings, setGameSettings] = useState<GameDetectionSettings>({ enabled: true });
   const [gameSettingsLoading, setGameSettingsLoading] = useState(true);
@@ -300,6 +280,15 @@ function SettingsPage({ status, gameState, error, onImported, onNotificationPerm
 
   return <>
     <div className="page-heading"><div><div className="eyebrow">PREFERENCES</div><h1>设置</h1><p>助手在后台托盘运行，游戏内提示会自动显示。</p></div></div>
+    {canMarkAugments && <details className="settings-card content-panel">
+      <summary>已选海克斯 · 联动试用</summary>
+      {synergyCards.map((name) => <label key={name} style={{ display: "block" }}>
+        <input type="checkbox" checked={selectedAugments.includes(name)} onChange={(event) => {
+          const checked = event.target.checked;
+          setSelectedAugments((previous) => checked ? [...previous, name] : previous.filter((card) => card !== name));
+        }} /> {name}
+      </label>)}
+    </details>}
     <div className="bottom-hint"><Sparkles size={14} /><span>右键系统托盘图标可打开设置或退出；海克斯卡片自动识别无需快捷键。Ctrl+Shift+F6 重识别、Ctrl+Shift+F7 刷新状态、Ctrl+Shift+F8 隐藏浮层（需 Windows 允许注册快捷键）。</span></div>
     <div className="settings-grid">
       <section className="settings-card content-panel"><div className="settings-card-title"><div className="settings-icon blue"><Database size={17} /></div><div><h2>数据状态</h2><p>英雄排名与海克斯推荐分别记录来源</p></div></div><div className="settings-rows"><SettingRow label="英雄总榜" value={error ? "核心暂不可用" : status?.data_status.ready ? `${status.data_status.stale ? "使用缓存" : "已载入"} · ${status.data_status.patch || "补丁未标注"}` : "等待 AramHex 同步"} /><SettingRow label="海克斯推荐" value={status?.data_status.augment_ready ? `${status.data_status.augment_stale ? "使用缓存" : "已载入"} · ${status.data_status.augment_patch || "版本未标注"}` : "等待同步"} /><SettingRow label="英雄榜来源" value={status?.data_status.source || "AramHex"} /><SettingRow label="海克斯来源" value={status?.data_status.augment_source || "AramHex / 本地缓存"} /><SettingRow label="快照生成时间" value={status?.data_status.updated_at || status?.data_status.augment_updated_at || "—"} /></div><div className="import-actions"><label className="import-action"><input type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0], "rankings", event.currentTarget)} /><span><ArrowDownToLine size={14} />导入英雄榜 JSON</span><small>替换当前榜单快照</small></label><label className="import-action"><input type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0], "augments", event.currentTarget)} /><span><ArrowDownToLine size={14} />导入海克斯分级 JSON</span><small>更新 S / A / B 推荐</small></label></div>{importNotice && <div className={`import-notice ${importNotice.error ? "error" : "success"}`} role="status">{importNotice.text}</div>}<div className="settings-tip"><CircleHelp size={14} />启动时及每 6 小时检查数据更新，失败后 15 分钟重试；离线时使用本地缓存。英雄 1–5 档按胜率排名每 20% 分组，1 档最高；S/A/B 为本应用海克斯评级。数据：AramHex · CC BY-NC 4.0，仅限非商业使用。</div></section>

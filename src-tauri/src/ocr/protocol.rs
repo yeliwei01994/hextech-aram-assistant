@@ -9,6 +9,8 @@ pub struct OcrWorkerRequest {
 
 #[derive(Deserialize)]
 pub struct OcrWorkerResponse {
+    pub game_window_handle: Option<usize>,
+    pub augment_choice: Option<bool>,
     #[serde(default)]
     pub screen_width: u32,
     #[serde(default)]
@@ -22,6 +24,7 @@ pub struct OcrWorkerResponse {
 
 #[derive(Deserialize)]
 pub struct OcrProbeResponse {
+    pub hud_selected_name: Option<String>,
     #[serde(default)]
     pub shop_visible: bool,
     #[serde(default)]
@@ -50,6 +53,7 @@ pub struct OcrCardProbeMetric {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct OcrRawCard {
+    pub center_x: Option<f64>,
     pub slot: u8,
     #[serde(default)]
     pub raw_text: String,
@@ -58,6 +62,8 @@ pub struct OcrRawCard {
 }
 
 pub struct OcrScreenResult {
+    pub game_window_handle: Option<usize>,
+    pub augment_choice: Option<bool>,
     pub screen_width: u32,
     pub screen_height: u32,
     pub monitor: Option<OcrScreenBounds>,
@@ -66,6 +72,7 @@ pub struct OcrScreenResult {
 }
 
 pub struct OcrProbeResult {
+    pub hud_selected_name: Option<String>,
     pub shop_visible: bool,
     pub game_foreground: bool,
     pub augment_choice: bool,

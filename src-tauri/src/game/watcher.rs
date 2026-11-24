@@ -114,7 +114,7 @@ pub fn start_game_state_monitor(app: AppHandle) {
                 Ok(current) => {
                     if previous.as_ref() != Some(&current) {
                         if let Ok(mut champion) = state.ocr_champion_id.lock() {
-                            *champion = current.player_champion_id.clone();
+                            update_ocr_champion(&mut champion, &current);
                         }
                         previous = Some(current.clone());
                         let _ = app.emit_to("main", "game:state", current.clone());
@@ -126,6 +126,16 @@ pub fn start_game_state_monitor(app: AppHandle) {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
+}
+
+fn update_ocr_champion(cached: &mut Option<String>, current: &GameState) {
+    // The live client may not have a player row yet when the game starts.
+    // Clear the cache outside the match so it cannot cross into the next game.
+    if !current.enabled || !current.connected || current.phase == GamePhase::Disconnected {
+        *cached = None;
+    } else if current.player_champion_id.is_some() || current.phase == GamePhase::ChampSelect {
+        cached.clone_from(&current.player_champion_id);
+    }
 }
 
 async fn observe_game() -> Observation {
@@ -593,6 +603,37 @@ fn resolve_champion(
 #[cfg(test)]
 mod tests {
     use super::{champion_from_live_data, parse_lcu_credentials, parse_lcu_lockfile};
+
+    #[test]
+    fn ocr_keeps_the_champion_through_loading_and_clears_it_after_the_match() {
+        use super::{update_ocr_champion, GamePhase, GameState};
+
+        let mut cached = None;
+        let mut state = GameState {
+            enabled: true,
+            connected: true,
+            phase: GamePhase::ChampSelect,
+            source: None,
+            player_champion_id: Some("Ahri".into()),
+            player_champion_name: None,
+            ranking: None,
+            team: Vec::new(),
+            bench: Vec::new(),
+        };
+        update_ocr_champion(&mut cached, &state);
+        state.player_champion_id = None;
+        for phase in [GamePhase::Loading, GamePhase::InGame] {
+            state.phase = phase;
+            update_ocr_champion(&mut cached, &state);
+            assert_eq!(cached.as_deref(), Some("Ahri"));
+        }
+        state.player_champion_id = Some("Lux".into());
+        update_ocr_champion(&mut cached, &state);
+        assert_eq!(cached.as_deref(), Some("Lux"));
+        state.phase = GamePhase::Disconnected;
+        update_ocr_champion(&mut cached, &state);
+        assert_eq!(cached, None);
+    }
 
     #[test]
     fn reads_cached_overall_rate_only_for_matching_source() {

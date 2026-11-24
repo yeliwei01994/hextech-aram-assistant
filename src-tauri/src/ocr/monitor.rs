@@ -32,9 +32,12 @@ fn should_request_ocr(
     }
 }
 
+fn champion_requires_refresh(previous: Option<Option<&str>>, current: Option<&str>) -> bool {
+    previous.is_some_and(|previous| previous != current)
+}
+
 pub fn start_automatic_detection(app: AppHandle) {
     #[cfg(windows)]
-    if cfg!(debug_assertions)
     {
         let app = app.clone();
         thread::Builder::new()
@@ -88,6 +91,7 @@ fn monitor_loop(app: AppHandle) {
     let mut candidate_signature: Option<String> = None;
     let mut stable_signature_probes = 0u8;
     let mut last_requested_signature: Option<String> = None;
+    let mut last_requested_champion: Option<String> = None;
     let mut retry_probe_after = None;
     let mut retry_ocr_after = None;
     let mut last_probe_state: Option<(bool, bool, usize, String)> = None;
@@ -214,7 +218,12 @@ fn monitor_loop(app: AppHandle) {
 
         match probe_result {
             Ok(probe) if probe.game_foreground && probe.augment_choice => {
-                choice_seen = cfg!(debug_assertions);
+                choice_seen = cfg!(windows);
+                if choice_seen && foreground_misses > 0 {
+                    if let Ok(mut selection) = state.selection.lock() {
+                        selection.set_closing(false);
+                    }
+                }
                 retry_probe_after = None;
                 let now = Instant::now();
                 if last_positive_probe
@@ -228,10 +237,6 @@ fn monitor_loop(app: AppHandle) {
                 last_positive_probe = Some(now);
                 negative_probes = 0;
                 foreground_misses = 0;
-                if let Ok(mut selection) = state.selection.lock() {
-                    selection.observe_highlight(&probe.card_metrics);
-                    selection.observe_pointer();
-                }
                 let signature = probe
                     .card_metrics
                     .iter()
@@ -244,15 +249,30 @@ fn monitor_loop(app: AppHandle) {
                     candidate_signature = Some(signature.clone());
                     stable_signature_probes = 1;
                 }
+                if cfg!(windows)
+                    && stable_signature_probes == 2
+                    && last_requested_signature.as_deref().is_some_and(|old| old != signature)
+                {
+                    if let Ok(mut selection) = state.selection.lock() {
+                        eprintln!("海克斯联动：卡片指纹连续变化，清除旧卡位映射");
+                        selection.disarm();
+                    }
+                }
+                let champion_id = state.ocr_champion_id.lock().ok().and_then(|id| id.clone());
+                let champion_changed = champion_requires_refresh(
+                    last_requested_signature.as_ref().map(|_| last_requested_champion.as_deref()),
+                    champion_id.as_deref(),
+                );
                 if !state.ocr_dismissed.load(Ordering::Relaxed)
                     && retry_ocr_after.is_none_or(|deadline| now >= deadline)
-                    && should_request_ocr(
-                    positive_probes, stable_signature_probes,
-                    last_requested_signature.as_deref(), &signature,
-                ) {
+                    && ((positive_probes >= 2 && champion_changed)
+                        || should_request_ocr(
+                            positive_probes, stable_signature_probes,
+                            last_requested_signature.as_deref(), &signature,
+                        ))
+                {
                     eprintln!("海克斯检测：{} 卡，请求识别", probe.card_metrics.len());
-                    let champion_id = state.ocr_champion_id.lock().ok().and_then(|id| id.clone());
-                    let result = crate::commands::ocr::recognize_impl(&app, champion_id, true)
+                    let result = crate::commands::ocr::recognize_impl(&app, champion_id.clone(), true)
                         .and_then(|payload| match payload {
                             Some(payload) if !state.ocr_dismissed.load(Ordering::Relaxed) =>
                                 crate::commands::ocr::show_ocr_overlay(payload, app.clone()).map(|()| true),
@@ -260,10 +280,8 @@ fn monitor_loop(app: AppHandle) {
                         });
                     if matches!(&result, Ok(true)) {
                         augment_visible = true;
-                        if let Ok(mut selection) = state.selection.lock() {
-                            selection.observe_highlight(&probe.card_metrics);
-                        }
                         last_requested_signature = Some(signature);
+                        last_requested_champion = champion_id;
                         retry_ocr_after = None;
                     } else {
                         if let Err(error) = result {
@@ -280,9 +298,9 @@ fn monitor_loop(app: AppHandle) {
                 retry_probe_after = None;
                 if probe.game_foreground {
                     foreground_misses = foreground_misses.saturating_add(1);
-                    if foreground_misses == 1 {
+                    if choice_seen && foreground_misses == 1 {
                         if let Ok(mut selection) = state.selection.lock() {
-                            selection.observe_closing_frame();
+                            selection.set_closing(true);
                         }
                     }
                     if foreground_misses == 3 {
@@ -299,7 +317,7 @@ fn monitor_loop(app: AppHandle) {
                 } else {
                     foreground_misses = 0;
                     if let Ok(mut selection) = state.selection.lock() {
-                        selection.cancel_inference();
+                        selection.cancel_click();
                     }
                 }
                 // Focus can briefly move away from the game during fullscreen
@@ -322,7 +340,7 @@ fn monitor_loop(app: AppHandle) {
             Err(error) => {
                 foreground_misses = 0;
                 if let Ok(mut selection) = state.selection.lock() {
-                    selection.cancel_inference();
+                    selection.cancel_click();
                 }
                 eprintln!("海克斯自动识别暂不可用：{error}");
                 retry_probe_after = Some(Instant::now() + PROBE_ERROR_COOLDOWN);
@@ -356,6 +374,14 @@ mod request_tests {
         assert!(!should_request_ocr(3, 1, Some(first), changed));
         assert!(!should_request_ocr(3, 2, Some(first), first));
         assert!(should_request_ocr(4, 2, Some(first), changed));
+    }
+
+    #[test]
+    fn a_new_champion_refreshes_the_same_card_screen() {
+        assert!(super::champion_requires_refresh(Some(None), Some("Ahri")));
+        assert!(super::champion_requires_refresh(Some(Some("Ahri")), Some("Lux")));
+        assert!(!super::champion_requires_refresh(Some(Some("Ahri")), Some("Ahri")));
+        assert!(!super::champion_requires_refresh(None, Some("Ahri")));
     }
 }
 

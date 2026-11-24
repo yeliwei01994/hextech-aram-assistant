@@ -52,15 +52,19 @@ pub(crate) fn recognize_impl(
         let name = crate::db::resolve_champion_identity(&db, id, None)
             .map_err(|error| format!("读取当前英雄失败：{error}"))?
             .map(|(_, name)| name);
+        if name.is_none() {
+            eprintln!("海克斯识别：本地英雄库无法解析英雄 ID {id}");
+        }
         let grades = load_grades(&db, id)?;
         (name, grades)
     } else {
+        eprintln!("海克斯识别：尚未收到当前英雄 ID");
         (None, Vec::new())
     };
 
     let cards = make_advice_cards(&screen, &grade_rows);
     let selected_augments = state.selection.lock().map(|mut selection| {
-        if cfg!(debug_assertions) && only_if_augment_choice {
+        if cfg!(windows) && only_if_augment_choice {
             if let Some(bounds) = &screen.game_window {
                 selection.arm(bounds.clone(), cards.clone(), capture_started, screen.game_window_handle.unwrap_or(foreground_window));
             } else {

@@ -189,9 +189,13 @@ function SettingsPage({ status, gameState, error, onImported, onNotificationPerm
   const [selectedAugments, setSelectedAugments] = useState<string[]>([]);
   const canMarkAugments = import.meta.env.DEV && gameState.enabled && gameState.phase === "in_game";
   useEffect(() => {
-    if (!canMarkAugments) setSelectedAugments([]);
+    if (!import.meta.env.DEV) return;
+    if (!canMarkAugments && selectedAugments.length > 0) {
+      setSelectedAugments([]);
+      return;
+    }
     if ("__TAURI_INTERNALS__" in window) {
-      void emitTo("ocr-overlay", synergySelectionEvent, canMarkAugments ? selectedAugments : [])
+      void emitTo("ocr-overlay", synergySelectionEvent, selectedAugments)
         .catch((error) => console.warn("同步已选海克斯失败", error));
     }
   }, [canMarkAugments, selectedAugments]);

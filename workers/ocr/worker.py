@@ -635,7 +635,7 @@ def main() -> None:
     layout = json.loads(Path(args.layout).read_text(encoding="utf-8"))
     engine_holder: list[Any] = [None]
     card_cache: dict[int, tuple[str, str, float]] = {}
-    hud_selection = None if getattr(sys, "frozen", False) else HudSelection()
+    hud_selection = HudSelection()
     for line in sys.stdin:
         try:
             request = json.loads(line)

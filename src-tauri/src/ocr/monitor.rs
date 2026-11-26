@@ -11,6 +11,7 @@ const PROBE_INTERVAL: Duration = Duration::from_millis(300);
 const PROBE_ERROR_COOLDOWN: Duration = Duration::from_secs(5);
 const POSITIVE_PROBE_WINDOW: Duration = Duration::from_secs(1);
 const OCR_RETRY_DELAY: Duration = Duration::from_secs(2);
+const CHOICE_CLOSE_PROBES: u8 = 3;
 
 fn hide_overlay(app: &AppHandle) {
     if let Err(error) = crate::commands::ocr::hide_ocr_overlay(app.clone()) {
@@ -20,16 +21,25 @@ fn hide_overlay(app: &AppHandle) {
 
 fn should_request_ocr(
     positive_probes: u8,
-    stable_signature_probes: u8,
+    previous_probe: Option<&str>,
     last_requested: Option<&str>,
     signature: &str,
 ) -> bool {
-    positive_probes >= 2 && match last_requested {
-        // A confirmed card layout is enough for the first read. Hover effects
-        // can change an individual title hash without changing the layout.
-        None => true,
-        Some(previous) => stable_signature_probes >= 2 && previous != signature,
+    if positive_probes < 2 {
+        return false;
     }
+    let Some(displayed) = last_requested else { return true };
+    let Some(previous) = previous_probe else { return false };
+    let slots = signature.split('|').count();
+    if previous.split('|').count() != slots {
+        return false;
+    }
+    if displayed.split('|').count() != slots {
+        return true;
+    }
+    // Confirm the same slot has changed twice, even while its title is animating.
+    signature.split('|').zip(previous.split('|')).zip(displayed.split('|'))
+        .any(|((current, previous), displayed)| current != displayed && previous != displayed)
 }
 
 fn champion_requires_refresh(previous: Option<Option<&str>>, current: Option<&str>) -> bool {
@@ -88,8 +98,7 @@ fn monitor_loop(app: AppHandle) {
     let mut foreground_misses = 0u8;
     let mut choice_seen = false;
     let mut last_positive_probe: Option<Instant> = None;
-    let mut candidate_signature: Option<String> = None;
-    let mut stable_signature_probes = 0u8;
+    let mut previous_probe_signature: Option<String> = None;
     let mut last_requested_signature: Option<String> = None;
     let mut last_requested_champion: Option<String> = None;
     let mut retry_probe_after = None;
@@ -131,9 +140,9 @@ fn monitor_loop(app: AppHandle) {
             foreground_misses = 0;
             choice_seen = false;
             last_positive_probe = None;
-            candidate_signature = None;
-            stable_signature_probes = 0;
+            previous_probe_signature = None;
             last_requested_signature = None;
+            last_requested_champion = None;
             retry_probe_after = None;
             retry_ocr_after = None;
             last_probe_state = None;
@@ -165,10 +174,12 @@ fn monitor_loop(app: AppHandle) {
             .map_err(|_| "OCR 识别器暂不可用".to_string())
             .and_then(|mut ocr| ocr.probe_current_screen());
         let shop_bounds = probe_result.as_ref().ok()
-            .filter(|probe| probe.game_foreground && probe.shop_visible)
+            .filter(|probe| {
+                probe.game_foreground && probe.shop_visible && !probe.augment_choice && !augment_visible
+            })
             .and_then(|probe| probe.game_window.as_ref());
         if let Ok(probe) = &probe_result {
-            update_shop_overlay(&app, shop_bounds, probe.game_foreground, &mut shop_hits, &mut shop_misses, &mut shop_open);
+            update_shop_overlay(&app, shop_bounds, probe.game_foreground && !probe.augment_choice, &mut shop_hits, &mut shop_misses, &mut shop_open);
         }
 
         if let Ok(probe) = &probe_result {
@@ -230,8 +241,7 @@ fn monitor_loop(app: AppHandle) {
                     .is_none_or(|last| now.duration_since(last) > POSITIVE_PROBE_WINDOW)
                 {
                     positive_probes = 0;
-                    candidate_signature = None;
-                    stable_signature_probes = 0;
+                    previous_probe_signature = None;
                 }
                 positive_probes = positive_probes.saturating_add(1);
                 last_positive_probe = Some(now);
@@ -243,21 +253,6 @@ fn monitor_loop(app: AppHandle) {
                     .map(|card| format!("{}:{}", card.slot, card.signature))
                     .collect::<Vec<_>>()
                     .join("|");
-                if candidate_signature.as_deref() == Some(signature.as_str()) {
-                    stable_signature_probes = stable_signature_probes.saturating_add(1);
-                } else {
-                    candidate_signature = Some(signature.clone());
-                    stable_signature_probes = 1;
-                }
-                if cfg!(windows)
-                    && stable_signature_probes == 2
-                    && last_requested_signature.as_deref().is_some_and(|old| old != signature)
-                {
-                    if let Ok(mut selection) = state.selection.lock() {
-                        eprintln!("海克斯联动：卡片指纹连续变化，清除旧卡位映射");
-                        selection.disarm();
-                    }
-                }
                 let champion_id = state.ocr_champion_id.lock().ok().and_then(|id| id.clone());
                 let champion_changed = champion_requires_refresh(
                     last_requested_signature.as_ref().map(|_| last_requested_champion.as_deref()),
@@ -267,7 +262,7 @@ fn monitor_loop(app: AppHandle) {
                     && retry_ocr_after.is_none_or(|deadline| now >= deadline)
                     && ((positive_probes >= 2 && champion_changed)
                         || should_request_ocr(
-                            positive_probes, stable_signature_probes,
+                            positive_probes, previous_probe_signature.as_deref(),
                             last_requested_signature.as_deref(), &signature,
                         ))
                 {
@@ -280,19 +275,18 @@ fn monitor_loop(app: AppHandle) {
                         });
                     if matches!(&result, Ok(true)) {
                         augment_visible = true;
-                        last_requested_signature = Some(signature);
+                        last_requested_signature = Some(signature.clone());
                         last_requested_champion = champion_id;
                         retry_ocr_after = None;
-                    } else {
-                        if let Err(error) = result {
-                            eprintln!("海克斯自动识别或显示失败：{error}");
-                        }
+                    } else if let Err(error) = result {
+                        eprintln!("海克斯自动识别或显示失败：{error}");
                         retry_ocr_after = Some(Instant::now() + OCR_RETRY_DELAY);
                     }
                     if state.ocr_dismissed.load(Ordering::Relaxed) {
                         hide_overlay(&app);
                     }
                 }
+                previous_probe_signature = Some(signature);
             }
             Ok(probe) => {
                 retry_probe_after = None;
@@ -303,7 +297,7 @@ fn monitor_loop(app: AppHandle) {
                             selection.set_closing(true);
                         }
                     }
-                    if foreground_misses == 3 {
+                    if foreground_misses == CHOICE_CLOSE_PROBES {
                         state.ocr_dismissed.store(false, Ordering::Relaxed);
                         retry_ocr_after = None;
                         last_requested_signature = None;
@@ -327,11 +321,10 @@ fn monitor_loop(app: AppHandle) {
                 if probe.game_foreground {
                     positive_probes = 0;
                     last_positive_probe = None;
-                    candidate_signature = None;
-                    stable_signature_probes = 0;
+                    previous_probe_signature = None;
                 }
                 negative_probes = negative_probes.saturating_add(1);
-                if augment_visible && negative_probes >= 3 {
+                if augment_visible && negative_probes >= CHOICE_CLOSE_PROBES {
                     augment_visible = false;
                     last_requested_signature = None;
                     hide_overlay(&app);
@@ -346,11 +339,10 @@ fn monitor_loop(app: AppHandle) {
                 retry_probe_after = Some(Instant::now() + PROBE_ERROR_COOLDOWN);
                 positive_probes = 0;
                 last_positive_probe = None;
-                candidate_signature = None;
-                stable_signature_probes = 0;
+                previous_probe_signature = None;
                 last_requested_signature = None;
                 negative_probes = negative_probes.saturating_add(1);
-                if augment_visible && negative_probes >= 3 {
+                if augment_visible && negative_probes >= CHOICE_CLOSE_PROBES {
                     augment_visible = false;
                     hide_overlay(&app);
                 }
@@ -369,11 +361,13 @@ mod request_tests {
     fn first_read_tolerates_jitter_but_refresh_waits_for_stable_change() {
         let first = "1:a|2:b|3:c|4:d";
         let changed = "1:a|2:b|3:c|4:e";
-        assert!(!should_request_ocr(1, 1, None, first));
-        assert!(should_request_ocr(2, 1, None, changed));
-        assert!(!should_request_ocr(3, 1, Some(first), changed));
-        assert!(!should_request_ocr(3, 2, Some(first), first));
-        assert!(should_request_ocr(4, 2, Some(first), changed));
+        assert!(!should_request_ocr(1, None, None, first));
+        assert!(should_request_ocr(2, Some(first), None, changed));
+        assert!(!should_request_ocr(3, Some(first), Some(first), changed));
+        assert!(!should_request_ocr(3, Some(changed), Some(first), first));
+        assert!(should_request_ocr(4, Some(changed), Some(first), "1:x|2:b|3:c|4:f"));
+        assert!(!should_request_ocr(4, Some(changed), Some(first), "1:x|2:b|3:c|4:d"));
+        assert!(should_request_ocr(4, Some("1:a|2:b|3:c"), Some(first), "1:x|2:b|3:c"));
     }
 
     #[test]

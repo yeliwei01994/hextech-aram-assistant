@@ -1,6 +1,6 @@
 [package]
 name = "aram-companion"
-version = "0.1.6"
+version = "0.1.7"
 description = "A lightweight local-first ARAM companion"
 authors = ["ARAM Companion"]
 edition = "2021"

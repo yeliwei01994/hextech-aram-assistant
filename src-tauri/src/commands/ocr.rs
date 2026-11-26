@@ -40,6 +40,10 @@ pub(crate) fn recognize_impl(
             eprintln!("海克斯识别：本次截图未确认选卡界面，等待重试");
             return Ok(None);
         }
+        if only_if_augment_choice && screen.cards.iter().all(|card| card.raw_text.trim().is_empty()) {
+            eprintln!("海克斯识别：卡片标题暂不可读，等待重试");
+            return Ok(None);
+        }
         eprintln!("海克斯识别：截图、OCR 与界面校验耗时 {} ms", started.elapsed().as_millis());
         screen
     };
@@ -150,12 +154,14 @@ pub fn show_ocr_overlay(payload: OcrOverlayPayload, app: AppHandle) -> Result<()
         payload.monitor.as_ref(),
         payload.game_window.as_ref(),
     )?;
-    window
-        .set_ignore_cursor_events(true)
-        .map_err(|error| format!("设置浮层鼠标穿透失败：{error}"))?;
-    window
-        .show()
-        .map_err(|error| format!("显示海克斯浮层失败：{error}"))?;
+    if !window.is_visible().map_err(|error| format!("读取海克斯浮层状态失败：{error}"))? {
+        window
+            .set_ignore_cursor_events(true)
+            .map_err(|error| format!("设置浮层鼠标穿透失败：{error}"))?;
+        window
+            .show()
+            .map_err(|error| format!("显示海克斯浮层失败：{error}"))?;
+    }
     window.emit("ocr:results", payload)
         .map_err(|error| format!("发送海克斯建议失败：{error}"))?;
     eprintln!("海克斯浮层：已显示并发送结果");
@@ -182,8 +188,15 @@ pub(crate) fn position_overlay(
     } else if let Some(monitor) = window.primary_monitor().map_err(|error| format!("读取主显示器失败：{error}"))? {
         (monitor.position().x, monitor.position().y, monitor.size().width, monitor.size().height)
     } else { return Err("找不到游戏窗口或显示器".to_string()); };
-    window.set_size(Size::Physical(PhysicalSize::new(width, height)))
-        .map_err(|error| format!("调整海克斯浮层大小失败：{error}"))?;
-    window.set_position(Position::Physical(PhysicalPosition::new(x, y)))
-        .map_err(|error| format!("定位海克斯浮层失败：{error}"))
+    let size = PhysicalSize::new(width, height);
+    if window.inner_size().ok() != Some(size) {
+        window.set_size(Size::Physical(size))
+            .map_err(|error| format!("调整海克斯浮层大小失败：{error}"))?;
+    }
+    let position = PhysicalPosition::new(x, y);
+    if window.outer_position().ok() != Some(position) {
+        window.set_position(Position::Physical(position))
+            .map_err(|error| format!("定位海克斯浮层失败：{error}"))?;
+    }
+    Ok(())
 }

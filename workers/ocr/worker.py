@@ -172,8 +172,10 @@ def crop_title(
 def title_signature(image: Image.Image) -> str:
     # Titles are static while the card art and border animate. A small binary
     # mask keeps the signature focused on the text and cheap to compare.
-    sample = image.convert("L").resize((32, 8), Image.Resampling.BILINEAR)
-    mask = bytes(1 if pixel >= 145 else 0 for pixel in sample.getdata())
+    # Threshold before downsampling so thin or dim strokes do not disappear.
+    strokes = image.convert("L").point(lambda pixel: 255 if pixel >= 115 else 0)
+    sample = strokes.resize((64, 16), Image.Resampling.BOX)
+    mask = sample.point(lambda pixel: 255 if pixel >= 64 else 0).tobytes()
     return hashlib.blake2s(mask, digest_size=8).hexdigest()
 
 
@@ -381,19 +383,18 @@ def recognize_cards(engine: Any, images: list[Image.Image]) -> list[tuple[str, f
     return output
 
 
-def shop_is_visible(rect: dict[str, int]) -> bool:
+def shop_is_visible(image: Image.Image) -> bool:
     import cv2
     import numpy as np
 
-    with mss() as capture:
-        frame = np.asarray(capture.grab(rect))
+    frame = np.asarray(image)
     height, width = frame.shape[:2]
     scale = min(1.0, 1200 / width)
     frame = cv2.resize(frame, (round(width * scale), round(height * scale)),
                        interpolation=cv2.INTER_AREA)
     height, width = frame.shape[:2]
-    b, g, r, _ = cv2.split(frame)
-    gold = cv2.inRange(frame, (0, 35, 60, 0), (158, 205, 225, 255))
+    r, g, b = cv2.split(frame)
+    gold = cv2.inRange(frame, (60, 35, 0), (225, 205, 158))
     gold[(g > r) | (b.astype(np.int16) + 8 >= g)] = 0
 
     def lines(horizontal: bool):
@@ -406,7 +407,8 @@ def shop_is_visible(rect: dict[str, int]) -> bool:
         return [cv2.boundingRect(contour) for contour in contours]
 
     horizontal = lines(True)
-    for x, y, w, h in lines(False):
+    vertical = lines(False)
+    for x, y, _, h in vertical:
         if h < height * .46:
             continue
         tolerance = max(5, round(width * .025))
@@ -419,11 +421,25 @@ def shop_is_visible(rect: dict[str, int]) -> bool:
                 continue
             if abs(left + length - x) > tolerance * 2:
                 continue
+            opposite = y + h if at_top else y
+            has_other_edge = any(
+                abs(other_edge - opposite) <= tolerance
+                and abs(other_left + other_length - x) <= tolerance * 2
+                and other_length >= length * .7
+                for other_left, other_edge, other_length, _ in horizontal
+            ) or any(
+                abs(other_x - left) <= tolerance
+                and abs(other_y - y) <= tolerance * 2
+                and other_height >= h * .8
+                for other_x, other_y, _, other_height in vertical
+            )
+            if not has_other_edge:
+                continue
             # The shop has a dark blue panel inside its top-right corner.
             sample_y = edge + 30 if at_top else edge - 100
             interior = frame[max(0, sample_y):max(0, sample_y + 70), max(0, x - 90):max(0, x - 12), :3]
             if interior.size:
-                blue, green, red = np.median(interior, axis=(0, 1))
+                red, green, blue = np.median(interior, axis=(0, 1))
                 if blue < 100 and blue >= green + 3 and green >= red + 6:
                     return True
     return False
@@ -533,20 +549,22 @@ def process_request(
             started = time.perf_counter()
             rect = active_game_client_rect()
             window = rect.pop("window_handle", None)
-            shop_visible = shop_is_visible(rect)
             reference = reference_rect(rect)
-            frame = None if shop_visible else capture_rgb(reference)
-            detected_layout, cards = (layout, []) if frame is None else detect_augment_layout(reference, layout, frame)
+            screenshot = capture_rgb(rect)
+            frame = screenshot if reference == rect else crop_region(screenshot, rect, reference)
+            detected_layout, cards = detect_augment_layout(reference, layout, frame)
             required_cards = max(2, len(detected_layout["cards"]) - 1)
+            choice = sum(card["matched"] for card in cards) >= required_cards
+            shop_visible = not choice and shop_is_visible(screenshot)
             response = {
                 "game_foreground": True,
-                "augment_choice": sum(card["matched"] for card in cards) >= required_cards,
-                "card_metrics": cards,
+                "augment_choice": choice,
+                "card_metrics": [] if shop_visible else cards,
                 "shop_visible": shop_visible,
                 "game_window": rect,
             }
             if hud_selection is not None:
-                if frame is None:
+                if shop_visible:
                     hud_selection.reset()
                 else:
                     response["hud_selected_name"] = hud_selection.observe(window, frame, response["augment_choice"], engine_holder[0])
